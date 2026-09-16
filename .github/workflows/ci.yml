@@ -13,7 +13,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run lint:node
       - run: npm run test
-      - run: npm run contract -- http://localhost:9999
+      # `npm run contract` needs a live service; re-added at C03 when api-node exists.
 
   dotnet:
     runs-on: ubuntu-latest

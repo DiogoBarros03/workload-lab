@@ -1,7 +1,6 @@
 const PLANS = {
   up: "podman play kube deploy/local/<variant>.yaml — arrives in C16",
   load: "run the autocannon <profile> against <url>, summary to results/raw/ — arrives in C07",
-  contract: "vitest run spec/tests against <url> — arrives in C01",
   k8s: "kubectl apply -k deploy/k8s/overlays/<variant> — arrives in C17",
 };
 
