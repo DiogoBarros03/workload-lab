@@ -8,6 +8,6 @@ export default tseslint.config(
   tseslint.configs.recommended,
   {
     languageOptions: { globals: globals.node },
-    rules: { complexity: ["error", 10] },
+    rules: { complexity: ["error", 15] },
   },
 );

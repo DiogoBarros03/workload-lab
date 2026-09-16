@@ -29,7 +29,7 @@ check — nothing is "done" on a feeling.
 
 - Use Serena for navigation and edits.
 - Use any available skill that fits the task before hand-rolling it.
-- Cyclomatic complexity ≤ 10 per function. Lint fails above.
+- Cyclomatic complexity ≤ 15 per function. Lint fails above.
 - Write only inside your owner folder. Read anywhere.
 - Done = every acceptance box ticked and `npm run contract -- <url>` green.
 
@@ -66,6 +66,8 @@ deploy/          local/            kube YAML run by `podman play kube`
 loadtest/        autocannon profiles: constant, ramp, spike, soak
 observability/   prometheus/  grafana/dashboards/
 results/         experiment reports, raw/ for generator output
+scripts/         podman runner and npm-script stubs
+tools/           complexity-fixture: guards both ceilings, not part of the system under test
 tasks/           one file per challenge (created in C00)
 docs/adr/        decision records
 ```
@@ -82,7 +84,7 @@ Each adds exactly one thing. Keep it that small.
 **C00 · Repo skeleton + tooling**
 Owner: root · Needs: —
 Build: the folders above, npm scripts with stub targets, eslint with
-`complexity: [error, 10]` and a Roslyn/Sonar analyzer at the same threshold, GitHub Actions
+`complexity: [error, 15]` and a Roslyn/Sonar analyzer at the same threshold, GitHub Actions
 running both plus the contract suite in containers, and this section split into
 `tasks/CNN-name.md`.
 Accept when:

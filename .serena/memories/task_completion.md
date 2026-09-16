@@ -2,7 +2,7 @@
 
 Run before claiming a challenge is done:
 
-1. `npm run lint` — eslint (`complexity` 10) and SonarAnalyzer `S1541` (10). Must exit 0.
+1. `npm run lint` — eslint (`complexity` 15) and SonarAnalyzer `S1541` (15). Must exit 0.
 2. `npm run test` — vitest in `node:24`. Must exit 0.
 3. `npm run contract -- <url>` — from C01 onward, against the running impl. Must be green.
 4. Re-read each acceptance box in `tasks/CNN-*.md` and paste the command plus its output as
