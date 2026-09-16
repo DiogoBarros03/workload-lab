@@ -1,0 +1,405 @@
+# ---------------------------------------------------------------------------
+# workload-lab contract. Both impls implement this document identically.
+#
+# Reviewed and signed by the brain:
+#   reviewed-by: ____________________   date: ____________
+#
+# Unsigned. The human signs at the C01 gate; agents never sign this line.
+# ---------------------------------------------------------------------------
+openapi: 3.1.0
+
+info:
+  title: workload-lab api
+  version: 1.0.0
+  description: |
+    The contract every impl (`node`, `dotnet`) serves identically, across every variant
+    (`v0`..`v3`). Deploy-time environment variables are in `knobs.md`; per-request query
+    parameters are in `parameters.md`; metric names are deferred to C08 (`metrics.md`).
+
+    Behaviour that changes with a knob is called out per operation. A knob never changes
+    which endpoints exist, only what they do.
+
+servers:
+  - url: "{baseUrl}"
+    variables:
+      baseUrl:
+        default: http://localhost:8080
+        description: Any base URL. The contract suite runs unchanged against all of them.
+
+paths:
+  /cpu:
+    get:
+      summary: Burn CPU on the request path
+      description: |
+        Hashes in a loop until `ms` of wall time has elapsed, `rounds` hashes at a time.
+        Deliberately synchronous: on Node this blocks the event loop, which is the point
+        of C04 and the thing C23 later moves to a worker thread.
+      parameters:
+        - { $ref: "#/components/parameters/ms" }
+        - { $ref: "#/components/parameters/rounds" }
+      responses:
+        "200":
+          description: Work completed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CpuResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /memory:
+    get:
+      summary: Allocate memory and hold it
+      description: |
+        Allocates `mb` megabytes, keeps the allocation reachable for `hold_ms`, then
+        releases it and responds. Against a container memory limit this is what gets
+        OOMKilled in C21.
+      parameters:
+        - { $ref: "#/components/parameters/mb" }
+        - { $ref: "#/components/parameters/hold_ms" }
+      responses:
+        "200":
+          description: Allocation held and released
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemoryResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /io:
+    get:
+      summary: One downstream sim call
+      description: |
+        Calls the downstream sim once at `DOWNSTREAM_URL`, asking for `ms` latency with
+        `jitter` of jitter. Honours `DOWNSTREAM_TIMEOUT_MS`, `RETRY_MAX`,
+        `RETRY_BACKOFF_MS` and `BREAKER`.
+      parameters:
+        - { $ref: "#/components/parameters/ms" }
+        - { $ref: "#/components/parameters/jitter" }
+      responses:
+        "200":
+          description: Downstream answered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IoResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/BreakerOpen" }
+        "504": { $ref: "#/components/responses/DownstreamTimeout" }
+
+  /fanout:
+    get:
+      summary: N downstream sim calls
+      description: |
+        Makes `n` downstream sim calls, overlapping (`mode=parallel`) or one after another
+        (`mode=serial`). The whole request is bounded by `DOWNSTREAM_TIMEOUT_MS`; one slow
+        call is enough to make the request slow, which is the tail-latency effect C05
+        measures and C25 hedges against.
+      parameters:
+        - { $ref: "#/components/parameters/n" }
+        - { $ref: "#/components/parameters/mode" }
+      responses:
+        "200":
+          description: All calls settled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FanoutResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/BreakerOpen" }
+        "504": { $ref: "#/components/responses/DownstreamTimeout" }
+
+  /flaky:
+    get:
+      summary: Fail on purpose, at a chosen rate
+      description: |
+        Injects failure in the api itself — the downstream sim is not involved. With both
+        rates at `0` this is a plain `200`, which is what makes it contract-testable.
+        `error_rate` and `timeout_rate` are evaluated independently; if both fire, `500`
+        wins.
+      parameters:
+        - { $ref: "#/components/parameters/error_rate" }
+        - { $ref: "#/components/parameters/timeout_rate" }
+      responses:
+        "200":
+          description: Did not fail this time
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlakyResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500":
+          description: Injected error (`error_rate` fired)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "504":
+          description: Injected timeout (`timeout_rate` fired)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /catalog/{id}:
+    get:
+      summary: Read one catalog item
+      description: |
+        Ids `1`..`1000` exist; every other id is `404`. Items are served by the downstream
+        sim, so a read costs a downstream call under `CACHE=off`. Under `CACHE=redis` it is
+        cache-aside with `CACHE_TTL_MS`, and under `WORK=queue` a completed job may
+        invalidate the entry (C15).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The item
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogItem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "504": { $ref: "#/components/responses/DownstreamTimeout" }
+
+  /jobs:
+    post:
+      summary: Submit a job
+      description: |
+        The submission API is identical under both work modes; only the status code and
+        the job's initial status differ.
+
+        - `WORK=sync`  — runs inline, answers `200` with the job already settled.
+        - `WORK=queue` — enqueues, answers `202` with the job `queued`.
+
+        Both answers carry an `id` that `GET /jobs/{id}` accepts. Job state lives in the
+        queue backend (ADR 0007), so under `QUEUE=memory` an id can stop resolving after a
+        restart — that loss is what C12 exists to demonstrate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobRequest" }
+      responses:
+        "200":
+          description: Ran inline and settled (`WORK=sync`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "202":
+          description: Accepted and queued (`WORK=queue`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Shed — queue depth is at `SHED_QUEUE_LIMIT` (C26)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /jobs/{id}:
+    get:
+      summary: Read one job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The job
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /healthz:
+    get:
+      summary: Liveness
+      description: |
+        Answers `200` whenever the process can answer at all. It never consults a
+        dependency — a liveness probe that fails on a downstream outage restarts a healthy
+        process, which is the failure C20 measures.
+      responses:
+        "200":
+          description: Alive
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /readyz:
+    get:
+      summary: Readiness
+      description: |
+        `200` when the service should receive traffic, `503` when it should not — during
+        startup, and from the moment SIGTERM is received until the process exits
+        (`GRACEFUL_SHUTDOWN_MS`).
+      responses:
+        "200":
+          description: Ready for traffic
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: Not ready — starting up or shutting down
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /metrics:
+    get:
+      summary: Prometheus scrape endpoint
+      description: |
+        Prometheus text exposition format. **Which metrics appear here is deferred to
+        C08** — see `metrics.md`. Until then a well-formed empty body is valid, and the
+        contract asserts only the status and the `text/plain` content type.
+      responses:
+        "200":
+          description: Exposition
+          content:
+            text/plain:
+              schema: { type: string }
+
+components:
+  parameters:
+    ms:
+      name: ms
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    rounds:
+      name: rounds
+      in: query
+      schema: { type: integer, minimum: 1, default: 1000 }
+    mb:
+      name: mb
+      in: query
+      schema: { type: integer, minimum: 0, default: 1 }
+    hold_ms:
+      name: hold_ms
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    jitter:
+      name: jitter
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    n:
+      name: n
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    mode:
+      name: mode
+      in: query
+      schema: { type: string, enum: [parallel, serial], default: parallel }
+    error_rate:
+      name: error_rate
+      in: query
+      schema: { type: number, minimum: 0, maximum: 1, default: 0 }
+    timeout_rate:
+      name: timeout_rate
+      in: query
+      schema: { type: number, minimum: 0, maximum: 1, default: 0 }
+
+  responses:
+    BadRequest:
+      description: A parameter was missing, malformed or out of range
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such id
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BreakerOpen:
+      description: Circuit breaker is open (`BREAKER=on`); no downstream call was made
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    DownstreamTimeout:
+      description: Downstream exceeded `DOWNSTREAM_TIMEOUT_MS`
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, starting, shutting_down] }
+
+    CpuResult:
+      type: object
+      required: [ms, rounds, hash]
+      properties:
+        ms: { type: integer, description: Wall time actually burned }
+        rounds: { type: integer, description: Hash rounds actually performed }
+        hash: { type: string, description: Final digest, so the work cannot be optimised away }
+
+    MemoryResult:
+      type: object
+      required: [mb, hold_ms]
+      properties:
+        mb: { type: integer }
+        hold_ms: { type: integer }
+
+    IoResult:
+      type: object
+      required: [ms, attempts]
+      properties:
+        ms: { type: integer, description: Wall time the downstream call took }
+        attempts: { type: integer, description: Downstream calls made, including retries }
+
+    FanoutResult:
+      type: object
+      required: [n, mode, ok, failed, ms]
+      properties:
+        n: { type: integer }
+        mode: { type: string, enum: [parallel, serial] }
+        ok: { type: integer, description: Calls that answered 2xx }
+        failed: { type: integer, description: Calls that did not }
+        ms: { type: integer, description: Wall time for the whole fanout }
+
+    FlakyResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, const: true }
+
+    CatalogItem:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+
+    JobRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [echo, fail]
+          description: |
+            `echo` succeeds with its payload as the result. `fail` always throws — it is
+            the poison job C12 drives into the DLQ. Two types is the whole set; a job type
+            that does real work would make results depend on the job, not the variant.
+        payload:
+          type: object
+          additionalProperties: true
+
+    Job:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string }
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed]
+        result:
+          type: object
+          additionalProperties: true
+          description: Present when `status` is `succeeded`
+        error:
+          type: string
+          description: Present when `status` is `failed`
