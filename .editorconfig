@@ -9,6 +9,5 @@ insert_final_newline = true
 
 [*.cs]
 indent_size = 4
-# The C# half of the complexity ceiling; the Node half lives in eslint.config.mjs.
+# C# ceiling severity; the threshold itself lives in SonarLint.xml, not here.
 dotnet_diagnostic.S1541.severity = error
-dotnet_diagnostic.S1541.maximumFunctionComplexityThreshold = 10

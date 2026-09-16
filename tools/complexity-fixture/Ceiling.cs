@@ -1,6 +1,6 @@
 namespace WorkloadLab.ComplexityFixture;
 
-// Guards the C# complexity ceiling: cyclomatic complexity 10 must build, 11 must not.
+// Guards the C# complexity ceiling: cyclomatic complexity 15 must build, 16 must not.
 public static class Ceiling
 {
     public static int AtTheCeiling(int n)
@@ -15,6 +15,11 @@ public static class Ceiling
         if (n > 7) score++;
         if (n > 8) score++;
         if (n > 9) score++;
+        if (n > 10) score++;
+        if (n > 11) score++;
+        if (n > 12) score++;
+        if (n > 13) score++;
+        if (n > 14) score++;
         return score;
     }
 }

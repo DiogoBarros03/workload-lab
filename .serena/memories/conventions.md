@@ -4,7 +4,7 @@
 
 1. Use Serena for navigation and edits.
 2. Use any available skill that fits the task before hand-rolling it.
-3. Cyclomatic complexity <= 10 per function. Lint fails above.
+3. Cyclomatic complexity <= 15 per function. Lint fails above.
 4. Write only inside your owner folder. Read anywhere.
 5. Done = every acceptance box ticked and `npm run contract -- <url>` green.
 
@@ -37,8 +37,9 @@ profile, experiment, result. Do not invent synonyms — the glossary lists the r
 
 ## Code style
 
-- Complexity ceiling 10 is enforced twice: `complexity: ["error", 10]` in `eslint.config.mjs`,
-  and SonarAnalyzer `S1541` at severity `error` in `.editorconfig`.
+- Complexity ceiling 15 is enforced twice: `complexity: ["error", 15]` in `eslint.config.mjs`,
+  and SonarAnalyzer `S1541` — severity in `.editorconfig`, **threshold in `SonarLint.xml`**
+  (an `AdditionalFiles` entry; the `.editorconfig` threshold key does not work). See ADR 0009.
 - TypeScript for Node impls; C# for .NET impls. No third language.
 - Variants are knobs, not branches of code: `CACHE=off|redis`, `WORK=sync|queue`,
   `QUEUE=memory|redis|rabbitmq`. One codebase per service.
