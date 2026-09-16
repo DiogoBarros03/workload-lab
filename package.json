@@ -8,7 +8,7 @@
   "scripts": {
     "up": "node scripts/stub.mjs up",
     "load": "node scripts/stub.mjs load",
-    "contract": "node scripts/stub.mjs contract",
+    "contract": "bash spec/contract.sh",
     "k8s": "node scripts/stub.mjs k8s",
     "test": "bash scripts/container.sh docker.io/library/node:24 npx --no-install vitest run --passWithNoTests",
     "lint": "npm run lint:node && npm run lint:dotnet",
