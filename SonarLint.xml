@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AnalysisInput>
+  <Rules>
+    <Rule>
+      <Key>S1541</Key>
+      <Parameters>
+        <Parameter>
+          <Key>maximumFunctionComplexityThreshold</Key>
+          <Value>15</Value>
+        </Parameter>
+      </Parameters>
+    </Rule>
+  </Rules>
+</AnalysisInput>
