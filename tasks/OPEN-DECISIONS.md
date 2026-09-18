@@ -1,5 +1,9 @@
 # Open decisions
 
+> #3 (jitter) was closed on 2026-09-17 by the session, under a `continue` with no ruling:
+> `spec/parameters.md` was amended to symmetric, matching the measured behaviour already merged
+> in `services/downstream-sim`. Reversible — say so and the sim changes instead.
+
 Raised at a gate, not yet ruled on by the brain. Each says what breaks if it stays open.
 Close one by making the edit and deleting its section.
 
@@ -17,14 +21,6 @@ C06's boxes read `sim error_rate 0.5` and `sim call count does not increase`.
 contract-testable — and C06's retry/breaker acceptance moves to `/io` and `/fanout`, which do
 call the sim. A breaker around a local failure injector protects nothing.
 **Blocks:** C06 cannot be accepted until ruled.
-
-## 3. Jitter is symmetric in the sim, additive in the contract
-
-`spec/parameters.md` says jitter is "on top of `ms`". `services/downstream-sim` draws uniformly
-over `latency_ms ± jitter_ms`, which is why C02's p50 landed on 100 rather than ~110.
-**Proposed:** amend `spec/parameters.md` to symmetric. It is what the C02 acceptance box was
-written for, and it keeps p50 equal to the configured latency.
-**Blocks:** C05 will implement `/io?ms=&jitter=` against whichever reading survives.
 
 ## 4. `/catalog/{id}` has no owner
 

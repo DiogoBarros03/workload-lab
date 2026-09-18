@@ -15,7 +15,7 @@ neither table.
 | `rounds` | `/cpu` | integer ≥ 1 | `1000` | Hash rounds per burn iteration. Controls granularity, not total work. |
 | `mb` | `/memory` | integer ≥ 0 | `1` | Megabytes to allocate and keep reachable. |
 | `hold_ms` | `/memory` | integer ≥ 0 | `0` | How long to hold the allocation before releasing it and responding. |
-| `jitter` | `/io` | integer ≥ 0 | `0` | Milliseconds of jitter to ask the downstream sim for, on top of `ms`. |
+| `jitter` | `/io` | integer ≥ 0 | `0` | Milliseconds of jitter to ask the downstream sim for, symmetric: latency is drawn uniformly over `ms` ± `jitter`, floored at 0. |
 | `n` | `/fanout` | integer ≥ 1 | `1` | Number of downstream sim calls to make. |
 | `mode` | `/fanout` | `parallel` \| `serial` | `parallel` | Whether the `n` calls overlap or run one after another. |
 | `error_rate` | `/flaky` | number 0.0–1.0 | `0` | Probability this request answers `500` instead of doing its work. |
