@@ -1,5 +1,6 @@
 // Spawns the real sim and the real api as children, so one command reproduces an arm.
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -25,13 +26,14 @@ export async function waitForUp(base) {
   throw new Error(`never became healthy: ${base}`);
 }
 
-// DOWNSTREAM_URL and DOWNSTREAM_TIMEOUT_MS are knobs — set once here, never mid-run.
-export async function startStack({ simPort, apiPort, timeoutMs }) {
+// Knobs are set once here and never mid-run; `apiEnv` is how an arm picks RETRY_MAX or BREAKER.
+export async function startStack({ simPort, apiPort, timeoutMs, apiEnv = {} }) {
   const sim = child(SIM, { PORT: String(simPort) });
   const api = child(API, {
     PORT: String(apiPort),
     DOWNSTREAM_URL: `http://127.0.0.1:${simPort}`,
     DOWNSTREAM_TIMEOUT_MS: String(timeoutMs),
+    ...apiEnv,
   });
   const simBase = `http://127.0.0.1:${simPort}`;
   const apiBase = `http://127.0.0.1:${apiPort}`;
@@ -39,9 +41,12 @@ export async function startStack({ simPort, apiPort, timeoutMs }) {
   return {
     simBase,
     apiBase,
+    // Awaitable: an arm that starts before the last one released its port dies on EADDRINUSE.
     stop: () => {
+      const ended = [sim, api].map((c) => (c.exitCode === null ? once(c, "exit") : null));
       sim.kill("SIGTERM");
       api.kill("SIGTERM");
+      return Promise.all(ended);
     },
   };
 }

@@ -61,3 +61,12 @@ Every service README follows this order, and it is checked at the gate:
 
 Never reference `CONTEXT.md` from a README. The glossary is for agents; a README must stand
 alone for a human who has just cloned the repo. A good README saves a human a lot of time.
+
+## Never measure with the host's node
+
+This host runs Node 26 via mise. It has a fetch stall the pinned runtime does not: any pause
+between two `fetch` calls to the same origin costs ~400–500 ms on v26.7.0 and ~1 ms on
+`node:24`. It cost one challenge a detour chasing a phantom retry-latency bug.
+
+Every measurement runs inside `docker.io/library/node:24` via `scripts/container.sh`. A number
+taken with a bare host `node` on this machine is wrong.
