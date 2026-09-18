@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-import ContractReporter from "./tests/reporter";
+import ContractReporter from "./tests/reporter.ts";
 
 export default defineConfig({
   test: {

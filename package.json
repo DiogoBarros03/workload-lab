@@ -16,10 +16,12 @@
     "lint": "npm run lint:node && npm run lint:dotnet",
     "lint:node": "bash scripts/container.sh docker.io/library/node:24 npx --no-install eslint .",
     "lint:dotnet": "bash scripts/container.sh mcr.microsoft.com/dotnet/sdk:10.0 dotnet build tools/complexity-fixture --nologo",
-    "ci": "npm run lint && npm run test"
+    "ci": "npm run lint && npm run typecheck && npm run test",
+    "typecheck": "bash scripts/container.sh docker.io/library/node:24 npx --no-install tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
+    "@types/node": "^26.6.1",
     "eslint": "^9.37.0",
     "globals": "^17.12.0",
     "typescript": "^5.9.3",
