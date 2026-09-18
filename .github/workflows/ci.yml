@@ -11,18 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm ci --no-audit --no-fund
+      # Service deps must land before typecheck, or fastify's types are missing and the
+      # gate reports errors that a developer with a warm node_modules never sees.
+      - name: install service deps
+        run: |
+          npm ci --no-audit --no-fund --prefix services/downstream-sim
+          npm ci --no-audit --no-fund --prefix services/api-node
       - run: npm run lint:node
       - run: npm run typecheck
       - run: npm run test
-      - name: install downstream-sim deps
-        run: npm ci --no-audit --no-fund --prefix services/downstream-sim
       - name: start downstream-sim
         run: |
           PORT=8090 node services/downstream-sim/src/server.ts &
           echo $! > /tmp/sim.pid
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8090/healthz && break; sleep 0.5; done
-      - name: install api-node deps
-        run: npm ci --no-audit --no-fund --prefix services/api-node
       - name: start api-node
         run: |
           node services/api-node/src/server.ts &
