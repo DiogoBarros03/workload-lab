@@ -27,10 +27,16 @@ Later challenges add their own rows here when they add a parameter.
 
 - **Path parameters.** `/catalog/{id}` and `/jobs/{id}` take an id in the path.
 - **Body fields.** `POST /jobs` takes `type` and `payload` in a JSON body.
-- **Sim config.** `latency_ms`, `jitter_ms`, `error_rate`, `timeout_rate`, `rate_limit_rps`
-  are the downstream sim's own runtime settings (`PUT /config`), not parameters of the
-  system under test. `/flaky`'s `error_rate` and `timeout_rate` are separate values that
-  happen to share a name; they inject failure in the api itself, without involving the sim.
+- **Sim config.** `latency_ms`, `jitter_ms`, `latency_shape`, `seed`, `error_rate`,
+  `timeout_rate`, `rate_limit_rps` are the downstream sim's own runtime settings
+  (`PUT /config`), not parameters of the system under test. `latency_shape` is `uniform`
+  (default, the wait is uniform over `latency_ms ± jitter_ms`) or `lognormal` (median stays
+  `latency_ms`; `jitter_ms / latency_ms` is the log-space sigma, so the tail is unbounded).
+  `seed` seeds every draw the sim makes and `PUT /config` re-seeds, so an arm replays
+  exactly. `PUT /outage {duration_ms}` is likewise the sim's own control, not a parameter:
+  it fails every call with `503` for the window, then recovers. `/flaky`'s `error_rate` and
+  `timeout_rate` are separate values that happen to share a name; they inject failure in the
+  api itself, without involving the sim.
 
 ## Validation
 
