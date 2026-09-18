@@ -33,3 +33,13 @@ folders are the two api services, so no agent may add the endpoint to the sim.
 **Options:** (a) C10 gets write access to `services/downstream-sim/`; (b) the api synthesises the
 item body and uses `GET /call` purely for the latency cost — needs no change to anything built.
 **Blocks:** C10.
+
+## 5. Nothing type-checks the TypeScript
+
+There is no `tsconfig.json` anywhere, no `@types/node`, and eslint runs typescript-eslint
+un-type-checked. Node 24 strips type annotations without validating them, so every annotation
+in `services/` is decoration. This also breaks the standing engineering rule that a task is not
+complete until the project's type-checker is green — there is no type-checker to run.
+**Options:** (a) add a root `tsconfig.json` + `@types/node` and an `npm run typecheck` wired into
+CI; (b) accept it and say so explicitly, on the grounds that the contract suite is the gate
+(ADR 0004). **Blocks:** nothing today; gets more expensive every challenge.
