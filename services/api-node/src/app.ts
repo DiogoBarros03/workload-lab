@@ -3,11 +3,21 @@ import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
-import { callUrl, caller, fanout, readDownstream } from "./downstream.ts";
-import type { Mode } from "./downstream.ts";
+import {
+  BreakerOpenError,
+  callUrl,
+  caller,
+  createBreaker,
+  fanout,
+  readBreakerConfig,
+  readDownstream,
+  readRetry,
+  settle,
+} from "./downstream.ts";
+import type { Mode, Policy } from "./downstream.ts";
 import { createDrain, isRefused, readyState, runShutdown } from "./lifecycle.ts";
 import type { Drain, Phase } from "./lifecycle.ts";
-import { burnCpu, holdMemory } from "./work.ts";
+import { burnCpu, holdMemory, injectFailure } from "./work.ts";
 
 // Content is deferred to C08 (spec/metrics.md); only this content type is contract today.
 const EXPOSITION = "text/plain; version=0.0.4; charset=utf-8";
@@ -45,13 +55,23 @@ const fanoutQuery = {
   },
 } as const;
 
+const flakyQuery = {
+  type: "object",
+  properties: {
+    error_rate: { type: "number", minimum: 0, maximum: 1, default: 0 },
+    timeout_rate: { type: "number", minimum: 0, maximum: 1, default: 0 },
+  },
+} as const;
+
 type CpuQuery = { ms: number; rounds: number };
 type MemoryQuery = { mb: number; hold_ms: number };
 type IoQuery = { ms: number; jitter: number };
 type FanoutQuery = { n: number; mode: Mode };
+type FlakyQuery = { error_rate: number; timeout_rate: number };
 
-// 504 is the only downstream failure spec/openapi.yaml gives /io and /fanout.
-function onTimeout(signal: AbortSignal, reply: FastifyReply, error: unknown) {
+// The three downstream failures spec/openapi.yaml gives /io and /fanout: 503, 504, 502.
+function onDownstreamError(signal: AbortSignal, reply: FastifyReply, error: unknown) {
+  if (error instanceof BreakerOpenError) return reply.code(503).send({ error: "breaker_open" });
   if (!signal.aborted) throw error;
   return reply.code(504).send({ error: "downstream_timeout" });
 }
@@ -67,6 +87,8 @@ export function buildApp(): Api {
   let phase: Phase = "starting";
   const drain = createDrain();
   const down = readDownstream();
+  // One breaker per process, shared by /io and /fanout: they call the same downstream.
+  const policy: Policy = { retry: readRetry(), breaker: createBreaker(readBreakerConfig()) };
 
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
@@ -104,7 +126,7 @@ export function buildApp(): Api {
     async (request) => holdMemory(request.query.mb, request.query.hold_ms),
   );
 
-  // attempts is 1 until C06 adds RETRY_MAX; the field exists so the shape never changes.
+  // 502 is "the call failed and retries are exhausted" — the error C06 measures.
   app.get<{ Querystring: IoQuery }>(
     "/io",
     { schema: { querystring: ioQuery } },
@@ -112,10 +134,12 @@ export function buildApp(): Api {
       const signal = AbortSignal.timeout(down.timeoutMs);
       const started = performance.now();
       try {
-        await caller(callUrl(down, request.query))(signal);
-        return { ms: Math.round(performance.now() - started), attempts: 1 };
+        const result = await settle(caller(callUrl(down, request.query)), signal, policy);
+        const ms = Math.round(performance.now() - started);
+        if (result.ok) return { ms, attempts: result.attempts };
+        return reply.code(502).send({ error: "downstream_failed", attempts: result.attempts });
       } catch (error) {
-        return onTimeout(signal, reply, error);
+        return onDownstreamError(signal, reply, error);
       }
     },
   );
@@ -126,11 +150,23 @@ export function buildApp(): Api {
     { schema: { querystring: fanoutQuery } },
     async (request, reply) => {
       const signal = AbortSignal.timeout(down.timeoutMs);
+      const call = caller(callUrl(down));
       try {
-        return await fanout(caller(callUrl(down)), request.query.n, request.query.mode, signal);
+        return await fanout(call, request.query.n, request.query.mode, signal, policy);
       } catch (error) {
-        return onTimeout(signal, reply, error);
+        return onDownstreamError(signal, reply, error);
       }
+    },
+  );
+
+  // Never calls the sim: the failure is injected here, which is what makes it reproducible.
+  app.get<{ Querystring: FlakyQuery }>(
+    "/flaky",
+    { schema: { querystring: flakyQuery } },
+    async (request, reply) => {
+      const injected = injectFailure(request.query.error_rate, request.query.timeout_rate);
+      if (!injected) return { ok: true };
+      return reply.code(injected.code).send({ error: injected.error });
     },
   );
 

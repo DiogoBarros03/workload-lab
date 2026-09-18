@@ -30,3 +30,17 @@ export async function holdMemory(mb: number, hold_ms: number): Promise<MemoryRes
   await sleep(hold_ms);
   return { mb: block.byteLength / MB, hold_ms };
 }
+
+export type Injected = { code: number; error: string };
+
+// Self-contained on purpose: /flaky never calls the sim, so rate 0 is a deterministic 200
+// and the contract suite can test it. `rnd() < 0` is false for every draw.
+export function injectFailure(
+  error_rate: number,
+  timeout_rate: number,
+  rnd: () => number = Math.random,
+): Injected | null {
+  if (rnd() < error_rate) return { code: 500, error: "injected_error" };
+  if (rnd() < timeout_rate) return { code: 504, error: "injected_timeout" };
+  return null;
+}

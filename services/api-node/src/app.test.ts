@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -16,6 +17,12 @@ const json = (_req: IncomingMessage, res: ServerResponse) => {
 
 const fail = (_req: IncomingMessage, res: ServerResponse) => {
   res.writeHead(500).end("boom");
+};
+
+// Fails the first n calls, then recovers — the transient failure retries exist for.
+const failTimes = (n: number) => {
+  let seen = 0;
+  return (req: IncomingMessage, res: ServerResponse) => ((seen += 1) <= n ? fail : json)(req, res);
 };
 
 // A fake, not a stub: a real HTTP server, so fetch, sockets and the deadline are all real.
@@ -166,9 +173,136 @@ describe("/io", () => {
     expect(performance.now() - started).toBeLessThan(2000);
   });
 
-  test("a refused connection is a 500, not a 504 — only the deadline is a timeout", async () => {
+  test("a refused connection is a 502 — the call failed, the deadline did not fire", async () => {
     const res = await build({ DOWNSTREAM_URL: DEAD_URL }).app.inject("/io");
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({ error: "downstream_failed", attempts: 1 });
+  });
+
+  test("a downstream 500 with retries off is a 502, not a 200", async () => {
+    const downstream = await sim(fail);
+    const res = await build({ DOWNSTREAM_URL: downstream.url }).app.inject("/io");
+
+    expect(res.statusCode).toBe(502);
+    expect(downstream.hits).toHaveLength(1);
+  });
+});
+
+describe("/io retries", () => {
+  test("RETRY_MAX turns a transient failure into a 200 and reports the attempts", async () => {
+    const downstream = await sim(failTimes(2));
+    const api = build({
+      DOWNSTREAM_URL: downstream.url,
+      RETRY_MAX: "3",
+      RETRY_BACKOFF_MS: "1",
+    });
+
+    const res = await api.app.inject("/io");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ attempts: 3 });
+    expect(downstream.hits).toHaveLength(3);
+  });
+
+  test("exhausting the retries is a 502 after RETRY_MAX + 1 calls", async () => {
+    const downstream = await sim(fail);
+    const api = build({ DOWNSTREAM_URL: downstream.url, RETRY_MAX: "2", RETRY_BACKOFF_MS: "1" });
+
+    const res = await api.app.inject("/io");
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({ attempts: 3 });
+    expect(downstream.hits).toHaveLength(3);
+  });
+
+  test("retries live inside DOWNSTREAM_TIMEOUT_MS, so the deadline still wins", async () => {
+    const downstream = await sim(() => {});
+    const api = build({
+      DOWNSTREAM_URL: downstream.url,
+      DOWNSTREAM_TIMEOUT_MS: "150",
+      RETRY_MAX: "5",
+      RETRY_BACKOFF_MS: "1",
+    });
+
+    const started = performance.now();
+    const res = await api.app.inject("/io");
+    expect(res.statusCode).toBe(504);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("the breaker", () => {
+  const breakerEnv = (url: string) => ({
+    DOWNSTREAM_URL: url,
+    BREAKER: "on",
+    BREAKER_FAILURE_THRESHOLD: "2",
+    BREAKER_RESET_MS: "200",
+  });
+
+  test("opens after the threshold and then answers 503 without calling the sim", async () => {
+    const downstream = await sim(fail);
+    const api = build(breakerEnv(downstream.url));
+
+    expect((await api.app.inject("/io")).statusCode).toBe(502);
+    expect((await api.app.inject("/io")).statusCode).toBe(502);
+    expect(downstream.hits).toHaveLength(2);
+
+    const open = await api.app.inject("/io");
+    expect(open.statusCode).toBe(503);
+    expect(open.json()).toEqual({ error: "breaker_open" });
+    expect(downstream.hits).toHaveLength(2);
+  });
+
+  test("/fanout shares the breaker with /io — one downstream, one circuit", async () => {
+    const downstream = await sim(fail);
+    const api = build(breakerEnv(downstream.url));
+
+    await api.app.inject("/fanout?n=2&mode=serial");
+    expect((await api.app.inject("/fanout?n=2&mode=parallel")).statusCode).toBe(503);
+    expect((await api.app.inject("/io")).statusCode).toBe(503);
+    expect(downstream.hits).toHaveLength(2);
+  });
+
+  test("half-opens after BREAKER_RESET_MS and closes when the probe succeeds", async () => {
+    let broken = true;
+    const downstream = await sim((req, res) => (broken ? fail(req, res) : json(req, res)));
+    const api = build(breakerEnv(downstream.url));
+
+    await api.app.inject("/io");
+    await api.app.inject("/io");
+    expect((await api.app.inject("/io")).statusCode).toBe(503);
+
+    broken = false;
+    await sleep(220);
+    expect((await api.app.inject("/io")).statusCode).toBe(200);
+    expect((await api.app.inject("/io")).statusCode).toBe(200);
+  });
+});
+
+describe("/flaky", () => {
+  test("is a deterministic 200 at rate 0 and never touches the downstream", async () => {
+    const downstream = await sim();
+    const api = build({ DOWNSTREAM_URL: downstream.url });
+
+    for (let i = 0; i < 25; i += 1) {
+      const res = await api.app.inject("/flaky?error_rate=0&timeout_rate=0");
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true });
+    }
+    expect(downstream.hits).toEqual([]);
+  });
+
+  test("rate 1 always fires, and 500 wins when both do", async () => {
+    const api = build({});
+    expect((await api.app.inject("/flaky?error_rate=1")).statusCode).toBe(500);
+    expect((await api.app.inject("/flaky?timeout_rate=1")).statusCode).toBe(504);
+    expect((await api.app.inject("/flaky?error_rate=1&timeout_rate=1")).json()).toEqual({
+      error: "injected_error",
+    });
+  });
+
+  test("a rate outside 0..1 is a 400, not a clamp", async () => {
+    const api = build({});
+    expect((await api.app.inject("/flaky?error_rate=1.5")).statusCode).toBe(400);
+    expect((await api.app.inject("/flaky?timeout_rate=nope")).statusCode).toBe(400);
   });
 });
 
