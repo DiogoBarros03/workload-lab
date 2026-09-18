@@ -69,7 +69,8 @@ paths:
       description: |
         Calls the downstream sim once at `DOWNSTREAM_URL`, asking for `ms` latency with
         `jitter` of jitter. Honours `DOWNSTREAM_TIMEOUT_MS`, `RETRY_MAX`,
-        `RETRY_BACKOFF_MS` and `BREAKER`.
+        `RETRY_BACKOFF_MS` and `BREAKER`. `DOWNSTREAM_TIMEOUT_MS` is a **per-request**
+        budget: retries happen inside it, so the client's worst case stays bounded.
       parameters:
         - { $ref: "#/components/parameters/ms" }
         - { $ref: "#/components/parameters/jitter" }
@@ -80,6 +81,13 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/IoResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "502":
+          description: |
+            The downstream call failed and `RETRY_MAX` retries were exhausted. This is the
+            client-visible error C06 measures; a load generator counts it as non-2xx.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "503": { $ref: "#/components/responses/BreakerOpen" }
         "504": { $ref: "#/components/responses/DownstreamTimeout" }
 
