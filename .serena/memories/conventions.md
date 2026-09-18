@@ -50,3 +50,14 @@ profile, experiment, result. Do not invent synonyms — the glossary lists the r
 - One branch per challenge: `challenge/CNN-name`, squash-merged to `main` after the gate.
 - Agents never self-accept. The brain (human) ticks the acceptance boxes.
 - Every experiment writes `results/NNN-name.md` using the template at the end of `PLAN.md`.
+
+## Service README shape (required)
+
+Every service README follows this order, and it is checked at the gate:
+
+1. **What this service is for** — purpose, objective, why it exists. Before anything technical.
+2. **What you can do with it** — API surface, workload config, knobs.
+3. **Three worked examples**, escalating: simple, then medium, then complex. Runnable as written.
+
+Never reference `CONTEXT.md` from a README. The glossary is for agents; a README must stand
+alone for a human who has just cloned the repo. A good README saves a human a lot of time.

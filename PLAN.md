@@ -31,6 +31,7 @@ check — nothing is "done" on a feeling.
 - Use any available skill that fits the task before hand-rolling it.
 - Cyclomatic complexity ≤ 15 per function. Lint fails above.
 - Write only inside your owner folder. Read anywhere.
+- A service you own gets a README: purpose, then usage, then three escalating examples.
 - Done = every acceptance box ticked, `npm run contract -- <url>` green, and your code at
   80% line coverage or above.
 
