@@ -5,9 +5,30 @@ import type { FastifyInstance } from "fastify";
 
 import { createDrain, isRefused, readyState, runShutdown } from "./lifecycle.ts";
 import type { Drain, Phase } from "./lifecycle.ts";
+import { burnCpu, holdMemory } from "./work.ts";
 
 // Content is deferred to C08 (spec/metrics.md); only this content type is contract today.
 const EXPOSITION = "text/plain; version=0.0.4; charset=utf-8";
+
+// Defaults and bounds are spec/parameters.md; ajv coerces, fills and drops unknown keys.
+const cpuQuery = {
+  type: "object",
+  properties: {
+    ms: { type: "integer", minimum: 0, default: 0 },
+    rounds: { type: "integer", minimum: 1, default: 1000 },
+  },
+} as const;
+
+const memoryQuery = {
+  type: "object",
+  properties: {
+    mb: { type: "integer", minimum: 0, default: 1 },
+    hold_ms: { type: "integer", minimum: 0, default: 0 },
+  },
+} as const;
+
+type CpuQuery = { ms: number; rounds: number };
+type MemoryQuery = { mb: number; hold_ms: number };
 
 export type Api = {
   app: FastifyInstance;
@@ -45,6 +66,16 @@ export function buildApp(): Api {
   });
 
   app.get("/metrics", async (_request, reply) => reply.type(EXPOSITION).send(""));
+
+  app.get<{ Querystring: CpuQuery }>("/cpu", { schema: { querystring: cpuQuery } }, async (request) =>
+    burnCpu(request.query.ms, request.query.rounds),
+  );
+
+  app.get<{ Querystring: MemoryQuery }>(
+    "/memory",
+    { schema: { querystring: memoryQuery } },
+    async (request) => holdMemory(request.query.mb, request.query.hold_ms),
+  );
 
   return { app, drain, phase: () => phase, setPhase: (next) => void (phase = next) };
 }
