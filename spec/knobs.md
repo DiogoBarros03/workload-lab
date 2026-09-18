@@ -61,3 +61,12 @@ means the two sets are disjoint.
 `DOWNSTREAM_TIMEOUT_MS` is a **per-request** budget, not per attempt. `RETRY_MAX` retries
 happen inside it, so a retrying request is bounded by the same deadline as a single one and
 retries may be cut short. Ruled 2026-09-17 at the C05 gate.
+
+`RETRY_BACKOFF_MS` is **full jitter**: the wait is uniform over
+`[0, RETRY_BACKOFF_MS × 2^(attempt−1)]`. There is no cap knob — the per-request deadline is
+the cap.
+
+The breaker counts **consecutive failed calls per request, after retries**, not per attempt,
+so `RETRY_MAX` and `BREAKER_FAILURE_THRESHOLD` stay independent. A fired deadline counts as a
+failure. One breaker per process, shared by `/io` and `/fanout`, because there is one
+`DOWNSTREAM_URL`.

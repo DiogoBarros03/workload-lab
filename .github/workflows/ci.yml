@@ -38,7 +38,7 @@ jobs:
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8080/healthz && break; sleep 0.5; done
       # Filter widens each challenge as endpoints land, and is deleted at C12.
       - name: contract
-        run: npm run contract -- http://127.0.0.1:8080 '/cpu|/memory|/io|/fanout|/healthz|/readyz|/metrics'
+        run: npm run contract -- http://127.0.0.1:8080 '/cpu|/memory|/io|/fanout|/flaky|/healthz|/readyz|/metrics'
       - name: stop services
         if: always()
         run: |
