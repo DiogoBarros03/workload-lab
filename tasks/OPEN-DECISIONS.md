@@ -43,3 +43,12 @@ complete until the project's type-checker is green — there is no type-checker 
 **Options:** (a) add a root `tsconfig.json` + `@types/node` and an `npm run typecheck` wired into
 CI; (b) accept it and say so explicitly, on the grounds that the contract suite is the gate
 (ADR 0004). **Blocks:** nothing today; gets more expensive every challenge.
+
+## 6. The results template asks for p95; autocannon has no p95 bucket
+
+`PLAN.md`'s Results template line reads `p50 / p95 / p99`. autocannon reports p50, p97.5, p99 —
+there is no p95 bucket. C04 reported p97.5 in its place and said so.
+**Options:** (a) change the template to `p50 / p97.5 / p99`; (b) compute p95 from autocannon's
+histogram in C07's profile runner and keep the template.
+**Blocks:** nothing, but every result file from here on inherits whichever is chosen, and
+changing it later makes earlier results non-comparable.
