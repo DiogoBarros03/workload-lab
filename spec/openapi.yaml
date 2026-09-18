@@ -137,8 +137,9 @@ paths:
     get:
       summary: Read one catalog item
       description: |
-        Ids `1`..`1000` exist; every other id is `404`. Items are served by the downstream
-        sim, so a read costs a downstream call under `CACHE=off`. Under `CACHE=redis` it is
+        Ids `1`..`1000` exist; every other id is `404`. The api synthesises the item body
+        itself and calls the downstream sim's `GET /call` purely for the downstream cost, so
+        a read costs one sim call under `CACHE=off`. Under `CACHE=redis` it is
         cache-aside with `CACHE_TTL_MS`, and under `WORK=queue` a completed job may
         invalidate the entry (C15).
       parameters:
