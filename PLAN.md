@@ -31,7 +31,8 @@ check — nothing is "done" on a feeling.
 - Use any available skill that fits the task before hand-rolling it.
 - Cyclomatic complexity ≤ 15 per function. Lint fails above.
 - Write only inside your owner folder. Read anywhere.
-- Done = every acceptance box ticked and `npm run contract -- <url>` green.
+- Done = every acceptance box ticked, `npm run contract -- <url>` green, and your code at
+  80% line coverage or above.
 
 ---
 
@@ -51,8 +52,8 @@ check — nothing is "done" on a feeling.
 - **Local orchestration is Kubernetes YAML via `podman play kube`.** There is no compose
   file. → ADR 0001
 - **Cluster is Talos**, images distributed by an in-cluster registry. → ADR 0002, 0003
-- **Verification is contract-first.** No coverage threshold; unit tests only where logic is
-  non-trivial. → ADR 0004
+- **80% line coverage, enforced in CI**, plus the contract suite as the integration tier.
+  Reversed from contract-first on 2026-09-17. → ADR 0010, superseding ADR 0004
 - **Job state lives in the queue backend.** → ADR 0007
 - Every experiment writes `results/NNN-name.md` using the template at the end.
 
