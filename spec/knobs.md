@@ -55,3 +55,9 @@ means the two sets are disjoint.
     names() { awk '/^## Table/{t=1;next} /^## /{t=0} t' "$1" |
               sed -n 's/^| `\([A-Za-z_0-9]*\)`.*/\1/p' | sort -u; }
     comm -12 <(names spec/knobs.md) <(names spec/parameters.md)
+
+## Retry budget
+
+`DOWNSTREAM_TIMEOUT_MS` is a **per-request** budget, not per attempt. `RETRY_MAX` retries
+happen inside it, so a retrying request is bounded by the same deadline as a single one and
+retries may be cut short. Ruled 2026-09-17 at the C05 gate.
