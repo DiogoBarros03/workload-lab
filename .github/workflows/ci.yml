@@ -13,6 +13,13 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run lint:node
       - run: npm run test
+      - name: install downstream-sim deps
+        run: npm ci --no-audit --no-fund --prefix services/downstream-sim
+      - name: start downstream-sim
+        run: |
+          PORT=8090 node services/downstream-sim/src/server.ts &
+          echo $! > /tmp/sim.pid
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8090/healthz && break; sleep 0.5; done
       - name: install api-node deps
         run: npm ci --no-audit --no-fund --prefix services/api-node
       - name: start api-node
@@ -22,10 +29,12 @@ jobs:
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8080/healthz && break; sleep 0.5; done
       # Filter widens each challenge as endpoints land, and is deleted at C12.
       - name: contract
-        run: npm run contract -- http://127.0.0.1:8080 '/cpu|/memory|/healthz|/readyz|/metrics'
-      - name: stop api-node
+        run: npm run contract -- http://127.0.0.1:8080 '/cpu|/memory|/io|/fanout|/healthz|/readyz|/metrics'
+      - name: stop services
         if: always()
-        run: kill -TERM "$(cat /tmp/api-node.pid)" || true
+        run: |
+          kill -TERM "$(cat /tmp/api-node.pid)" || true
+          kill -TERM "$(cat /tmp/sim.pid)" || true
 
   dotnet:
     runs-on: ubuntu-latest
