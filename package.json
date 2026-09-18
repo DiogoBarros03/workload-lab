@@ -11,6 +11,7 @@
     "contract": "bash spec/contract.sh",
     "k8s": "node scripts/stub.mjs k8s",
     "sim": "bash services/downstream-sim/run.sh",
+    "api": "bash services/api-node/run.sh",
     "test": "bash scripts/container.sh docker.io/library/node:24 npx --no-install vitest run --passWithNoTests",
     "lint": "npm run lint:node && npm run lint:dotnet",
     "lint:node": "bash scripts/container.sh docker.io/library/node:24 npx --no-install eslint .",
