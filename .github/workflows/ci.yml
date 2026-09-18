@@ -19,7 +19,13 @@ jobs:
           npm ci --no-audit --no-fund --prefix services/api-node
       - run: npm run lint:node
       - run: npm run typecheck
-      - run: npm run test
+      - run: npm run coverage
+      # Deterministic and seconds long, so they gate every push. event-loop.mjs and
+      # tail-latency.mjs stay out: load numbers from a shared runner mean nothing.
+      - name: measure shutdown
+        run: node services/api-node/measure/shutdown.mjs
+      - name: measure timeout
+        run: node services/api-node/measure/timeout.mjs
       - name: start downstream-sim
         run: |
           PORT=8090 node services/downstream-sim/src/server.ts &

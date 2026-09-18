@@ -12,6 +12,6 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true
   },
-  "include": ["services/**/*.ts", "spec/**/*.ts"],
+  "include": ["services/**/*.ts", "spec/**/*.ts", "vitest.config.ts"],
   "exclude": ["**/node_modules"]
 }
