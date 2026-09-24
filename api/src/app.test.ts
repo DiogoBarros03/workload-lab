@@ -2,12 +2,12 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { buildApp } from "./app.ts";
-import { createItemsRepo } from "./db.ts";
+import { createStore } from "./db.ts";
 
 // Live tier: runs against the real Postgres from compose, nothing faked.
 process.env.LOG_LEVEL = "silent";
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const app = buildApp(createItemsRepo(pool));
+const app = buildApp(createStore(pool));
 
 before(() => app.ready());
 after(async () => {
@@ -16,6 +16,9 @@ after(async () => {
 });
 
 const json = (r: { body: string }) => JSON.parse(r.body);
+const isbn = () => String(Date.now()).padStart(13, "9").slice(-13);
+const post = (url: string, payload: object) => app.inject({ method: "POST", url, payload });
+const newAuthor = async () => json(await post("/authors", { name: "Ursula K. Le Guin" })).id;
 
 test("health reports ok when the database answers", async () => {
   const r = await app.inject({ method: "GET", url: "/health" });
@@ -23,71 +26,91 @@ test("health reports ok when the database answers", async () => {
   assert.deepEqual(json(r), { status: "ok" });
 });
 
-test("full lifecycle: create, read, update, delete", async () => {
-  const created = await app.inject({
-    method: "POST",
-    url: "/items",
-    payload: { name: "widget", quantity: 3 },
-  });
+test("author lifecycle: create, read, update, delete", async () => {
+  const created = await post("/authors", { name: "Octavia Butler", country: "US" });
   assert.equal(created.statusCode, 201);
   const { id } = json(created);
-  assert.ok(Number.isInteger(id));
 
-  const read = await app.inject({ method: "GET", url: `/items/${id}` });
+  const read = await app.inject({ method: "GET", url: `/authors/${id}` });
   assert.equal(read.statusCode, 200);
-  assert.equal(json(read).name, "widget");
+  assert.equal(json(read).country, "US");
 
   const updated = await app.inject({
     method: "PUT",
-    url: `/items/${id}`,
-    payload: { name: "gadget", quantity: 5 },
+    url: `/authors/${id}`,
+    payload: { name: "Octavia E. Butler", country: "US" },
   });
   assert.equal(updated.statusCode, 200);
-  assert.equal(json(updated).quantity, 5);
-  assert.notEqual(json(updated).updated_at, json(created).updated_at);
+  assert.equal(json(updated).name, "Octavia E. Butler");
 
-  const deleted = await app.inject({ method: "DELETE", url: `/items/${id}` });
-  assert.equal(deleted.statusCode, 204);
-
-  const gone = await app.inject({ method: "GET", url: `/items/${id}` });
-  assert.equal(gone.statusCode, 404);
+  assert.equal((await app.inject({ method: "DELETE", url: `/authors/${id}` })).statusCode, 204);
+  assert.equal((await app.inject({ method: "GET", url: `/authors/${id}` })).statusCode, 404);
 });
 
-test("unknown id answers 404 on read, update and delete", async () => {
-  const id = 2_000_000_000;
-  for (const method of ["GET", "DELETE"] as const) {
-    const r = await app.inject({ method, url: `/items/${id}` });
-    assert.equal(r.statusCode, 404, method);
-  }
-  const r = await app.inject({
-    method: "PUT",
-    url: `/items/${id}`,
-    payload: { name: "x", quantity: 1 },
+test("book lifecycle under an author, listed via the author", async () => {
+  const authorId = await newAuthor();
+  const created = await post("/books", {
+    author_id: authorId,
+    title: "The Dispossessed",
+    isbn: isbn(),
+    price_cents: 1299,
   });
-  assert.equal(r.statusCode, 404);
+  assert.equal(created.statusCode, 201);
+  const book = json(created);
+  assert.equal(book.stock, 0);
+
+  const listed = await app.inject({ method: "GET", url: `/authors/${authorId}/books` });
+  assert.equal(listed.statusCode, 200);
+  assert.deepEqual(json(listed).map((b: { id: number }) => b.id), [book.id]);
+
+  const updated = await app.inject({
+    method: "PUT",
+    url: `/books/${book.id}`,
+    payload: { ...book, stock: 7 },
+  });
+  assert.equal(updated.statusCode, 200);
+  assert.equal(json(updated).stock, 7);
+
+  assert.equal((await app.inject({ method: "DELETE", url: `/books/${book.id}` })).statusCode, 204);
+  assert.equal((await app.inject({ method: "GET", url: `/books/${book.id}` })).statusCode, 404);
+});
+
+test("deleting an author cascades to their books", async () => {
+  const authorId = await newAuthor();
+  const { id } = json(await post("/books", { author_id: authorId, title: "t", isbn: isbn(), price_cents: 1 }));
+  await app.inject({ method: "DELETE", url: `/authors/${authorId}` });
+  assert.equal((await app.inject({ method: "GET", url: `/books/${id}` })).statusCode, 404);
+});
+
+test("database constraints surface as client errors", async () => {
+  const authorId = await newAuthor();
+  const code = isbn();
+  const book = { author_id: authorId, title: "t", isbn: code, price_cents: 1 };
+  assert.equal((await post("/books", book)).statusCode, 201);
+  assert.equal((await post("/books", book)).statusCode, 409, "duplicate isbn");
+  assert.equal((await post("/books", { ...book, isbn: isbn(), author_id: 2_000_000_000 })).statusCode, 404, "unknown author");
+  assert.equal((await app.inject({ method: "GET", url: "/authors/2000000000/books" })).statusCode, 404);
 });
 
 test("invalid input is rejected with 400 before touching the database", async () => {
-  const cases = [
-    { name: "", quantity: 1 },
-    { name: "x", quantity: -1 },
-    { name: "x", quantity: 1.5 },
-    { name: "x" },
-  ];
-  for (const payload of cases) {
-    const r = await app.inject({ method: "POST", url: "/items", payload });
-    assert.equal(r.statusCode, 400, JSON.stringify(payload));
+  const bad = [
+    ["/authors", { name: "" }],
+    ["/authors", {}],
+    ["/books", { author_id: 1, title: "t", isbn: "123", price_cents: 1 }],
+    ["/books", { author_id: 1, title: "t", isbn: isbn(), price_cents: -1 }],
+    ["/books", { author_id: 1, title: "t", isbn: isbn(), price_cents: 1.5 }],
+  ] as const;
+  for (const [url, payload] of bad) {
+    assert.equal((await post(url, payload)).statusCode, 400, JSON.stringify(payload));
   }
-  const badId = await app.inject({ method: "GET", url: "/items/abc" });
-  assert.equal(badId.statusCode, 400);
+  assert.equal((await app.inject({ method: "GET", url: "/books/abc" })).statusCode, 400);
 });
 
-test("unknown fields are stripped, not stored", async () => {
+test("delete with a json content-type and no body is a 400, not a 500", async () => {
   const r = await app.inject({
-    method: "POST",
-    url: "/items",
-    payload: { name: "x", quantity: 1, extra: true },
+    method: "DELETE",
+    url: "/authors/1",
+    headers: { "content-type": "application/json" },
   });
-  assert.equal(r.statusCode, 201);
-  assert.equal("extra" in json(r), false);
+  assert.equal(r.statusCode, 400);
 });

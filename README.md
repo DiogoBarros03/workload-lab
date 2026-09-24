@@ -18,23 +18,34 @@ that saturation happens at a scale the machine can generate and you can see it h
 
 | Path | What |
 |---|---|
-| `api/` | Node 24 + Fastify + `pg`. CRUD over one `items` table. TypeScript run directly, no build step. |
-| `db/init.sql` | The schema. Constraints live in the database, not in the app. |
+| `api/` | Node 24 + Fastify + `pg`. CRUD over a small bookstore: `authors` and their `books`. TypeScript run directly, no build step. |
+| `db/init.sql` | The schema. Constraints (unique ISBN, foreign key, cascade, checks) live in the database, not in the app. |
 | `compose.yaml` | The whole stack: `db`, `api`, and two on-demand services `test` and `k6`. Limits are set here. |
-| `loadtest/crud.js` | k6 script. Fixed request rate (open model), one iteration = create, read, update, delete. |
+| `loadtest/crud.js` | k6 script. Fixed request rate (open model), one iteration = create author, create book, read, update, list, delete author. |
 | `results/` | One markdown file per experiment, raw k6 summaries under `results/raw/`. |
+
+### Domain
+
+A bookstore, kept to two tables so the architecture is the only thing that changes between steps:
+
+- **author**: `name` (1..200), `country` (optional).
+- **book**: `author_id`, `title` (1..300), `isbn` (13 digits, unique), `price_cents` (>= 0), `stock` (>= 0, default 0).
+
+Deleting an author deletes their books (database cascade). A duplicate ISBN is a `409`; a book for
+an unknown author is a `404`. Both come from the database constraint, not from a lookup in the app.
 
 ### API
 
 | Method | Path | Answers |
 |---|---|---|
 | `GET` | `/health` | `200 {status: ok}` or `503` when the DB does not answer |
-| `POST` | `/items` | `201` with the item; `400` on bad input |
-| `GET` | `/items/:id` | `200` or `404` |
-| `PUT` | `/items/:id` | `200` or `404`; `400` on bad input |
-| `DELETE` | `/items/:id` | `204` or `404` |
+| `POST` | `/authors`, `/books` | `201` with the row; `400` on bad input; `409` duplicate ISBN; `404` unknown author |
+| `GET` | `/authors/:id`, `/books/:id` | `200` or `404` |
+| `PUT` | `/authors/:id`, `/books/:id` | `200` or `404`; full replace, same body as `POST` |
+| `DELETE` | `/authors/:id`, `/books/:id` | `204` or `404` |
+| `GET` | `/authors/:id/books` | `200` with the author's books, or `404` |
 
-Item body: `{ "name": string (1..200), "quantity": integer >= 0 }`. Unknown fields are dropped.
+Unknown fields in a body are dropped.
 
 ## Usage
 
@@ -55,9 +66,11 @@ Knobs, all environment: `RPS` (default 1), `DURATION` (default `30s`).
 **1. Talk to it**
 
 ```sh
-curl -s -XPOST localhost:3100/items -H 'content-type: application/json' -d '{"name":"bolt","quantity":4}'
-curl -s localhost:3100/items/1
-curl -s -XDELETE -o /dev/null -w '%{http_code}\n' localhost:3100/items/1
+curl -s -XPOST localhost:3100/authors -H 'content-type: application/json' -d '{"name":"Ursula K. Le Guin","country":"US"}'
+curl -s -XPOST localhost:3100/books -H 'content-type: application/json' \
+  -d '{"author_id":1,"title":"The Dispossessed","isbn":"9780061054884","price_cents":1299,"stock":3}'
+curl -s localhost:3100/authors/1/books
+curl -s -XDELETE -o /dev/null -w '%{http_code}\n' localhost:3100/authors/1   # cascades to the book
 ```
 
 **2. Find the knee**

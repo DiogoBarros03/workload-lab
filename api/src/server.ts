@@ -1,12 +1,12 @@
 import pg from "pg";
 import { buildApp } from "./app.ts";
-import { createItemsRepo } from "./db.ts";
+import { createStore } from "./db.ts";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required");
 
 const pool = new pg.Pool({ connectionString: url, max: Number(process.env.PG_POOL_MAX ?? 10) });
-const app = buildApp(createItemsRepo(pool));
+const app = buildApp(createStore(pool));
 
 const shutdown = async () => {
   await app.close();
