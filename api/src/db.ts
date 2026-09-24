@@ -74,6 +74,13 @@ export function createStore(pool: pg.Pool) {
       );
       return rows;
     },
+    listAuthors: async ({ name, limit }: { name?: string; limit: number }): Promise<Author[]> => {
+      const { rows } = await pool.query<Author>(
+        "SELECT * FROM authors WHERE ($1::text IS NULL OR name = $1) ORDER BY id LIMIT $2",
+        [name ?? null, limit],
+      );
+      return rows;
+    },
     ping: () => pool.query("SELECT 1"),
   };
 }

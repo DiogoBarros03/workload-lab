@@ -28,7 +28,16 @@ const idParam = {
   properties: { id: { type: "integer", minimum: 1 } },
 } as const;
 
+const listQuery = {
+  type: "object",
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 200 },
+    limit: { type: "integer", minimum: 1, maximum: 1000, default: 100 },
+  },
+} as const;
+
 type IdReq = { Params: { id: number } };
+type ListReq = { Querystring: { name?: string; limit: number } };
 
 // Postgres error codes that map to a client-visible status.
 const PG_STATUS: Record<string, [number, string]> = {
@@ -88,6 +97,10 @@ export function buildApp(store: Store) {
 
   registerCrud<unknown, AuthorInput>(app, "/authors", store.authors, authorBody);
   registerCrud<unknown, BookInput>(app, "/books", store.books, bookBody);
+
+  app.get<ListReq>("/authors", { schema: { querystring: listQuery } }, async (req) =>
+    store.listAuthors(req.query),
+  );
 
   app.get<IdReq>("/authors/:id/books", { schema: { params: idParam } }, async (req, reply) => {
     const author = await store.authors.get(req.params.id);

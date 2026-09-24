@@ -114,3 +114,27 @@ test("delete with a json content-type and no body is a 400, not a 500", async ()
   });
   assert.equal(r.statusCode, 400);
 });
+
+test("list authors filters by exact name, ordered by id, default limit 100", async () => {
+  const name = `list-${Date.now()}`;
+  const made = await Promise.all(Array.from({ length: 101 }, () => post("/authors", { name })));
+  const ids = made.map((r) => json(r).id as number).toSorted((a, b) => a - b);
+  const other = json(await post("/authors", { name: `${name}-other` })).id as number;
+  const get = (qs: string) => app.inject({ method: "GET", url: `/authors?${qs}` });
+
+  const all = await get(`name=${name}`);
+  assert.equal(all.statusCode, 200);
+  assert.deepEqual(json(all).map((a: { id: number }) => a.id), ids.slice(0, 100));
+  assert.ok(json(all).every((a: { name: string }) => a.name === name));
+
+  const two = json(await get(`name=${name}&limit=2`));
+  assert.deepEqual(two.map((a: { id: number }) => a.id), ids.slice(0, 2));
+  const unfiltered = json(await get("limit=3")).map((a: { id: number }) => a.id);
+  assert.equal(unfiltered.length, 3);
+  assert.deepEqual(unfiltered, unfiltered.toSorted((a: number, b: number) => a - b));
+
+  for (const qs of ["limit=0", "limit=1001", "limit=abc", "name=", `name=${"x".repeat(201)}`]) {
+    assert.equal((await get(qs)).statusCode, 400, qs);
+  }
+  await Promise.all([...ids, other].map((id) => app.inject({ method: "DELETE", url: `/authors/${id}` })));
+});

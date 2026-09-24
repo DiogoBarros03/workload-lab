@@ -20,7 +20,8 @@ that saturation happens at a scale the machine can generate and you can see it h
 |---|---|
 | `api/` | Node 24 + Fastify + `pg`. CRUD over a small bookstore: `authors` and their `books`. TypeScript run directly, no build step. |
 | `db/init.sql` | The schema. Constraints (unique ISBN, foreign key, cascade, checks) live in the database, not in the app. |
-| `compose.yaml` | The whole stack: `db`, `api`, and two on-demand services `test` and `k6`. Limits are set here. |
+| `compose.yaml` | The whole stack: `db`, `api`, `loadgen`, and on-demand services `test`, `loadgen-test` and `k6`. Limits are set here. |
+| `loadgen/` | Load generator with a browser UI on http://localhost:3200. Closed model: fixed concurrency, fixed request count. Own container, no limits, so it never shares the API's quota. |
 | `loadtest/crud.js` | k6 script. Fixed request rate (open model), one iteration = create author, create book, read, update, list, delete author. |
 | `results/` | One markdown file per experiment, raw k6 summaries under `results/raw/`. |
 
@@ -40,6 +41,7 @@ an unknown author is a `404`. Both come from the database constraint, not from a
 |---|---|---|
 | `GET` | `/health` | `200 {status: ok}` or `503` when the DB does not answer |
 | `POST` | `/authors`, `/books` | `201` with the row; `400` on bad input; `409` duplicate ISBN; `404` unknown author |
+| `GET` | `/authors?name=&limit=` | `200` with authors ordered by id, exact `name` filter optional (non-empty), `limit` 1..1000 (default 100); `400` on bad query |
 | `GET` | `/authors/:id`, `/books/:id` | `200` or `404` |
 | `PUT` | `/authors/:id`, `/books/:id` | `200` or `404`; full replace, same body as `POST` |
 | `DELETE` | `/authors/:id`, `/books/:id` | `204` or `404` |
@@ -53,15 +55,28 @@ Requires podman with the compose provider (`docker compose` also works as an ali
 rootless socket running once: `systemctl --user enable --now podman.socket`.
 
 ```sh
-podman compose up -d --wait            # db + api, api on http://localhost:3100
+podman compose up -d --wait            # db + api + loadgen, api on :3100, loadgen UI on :3200
 podman compose run --rm test           # live test suite against the real Postgres
+podman compose run --rm loadgen-test   # loadgen tests, live against the running api
 RPS=100 podman compose run --rm k6     # load at 100 req/s for 30s, summary in results/raw/rps-100.json
 podman compose down -v                 # stop and drop the data
 ```
 
 Knobs, all environment: `RPS` (default 1), `DURATION` (default `30s`).
 
-## Three examples
+`loadgen` starts with `up`. Open http://localhost:3200, pick an operation (`read` = `GET /books/:id`,
+`write` = `POST /books`, `mixed` = 50/50), a total request count (1..200000) and a concurrency
+(1..5000), and run. Each run appends a row to the history table so runs can be compared. Before a
+run it ensures 20 seed authors with 10 books each; writes go under 20 sink authors; Reset
+deletes both (and, by cascade, their books). One run at a time: closing the stream stops the run.
+
+| Method | Path | Answers |
+|---|---|---|
+| `GET` | `/` | the UI |
+| `POST` | `/run` `{op, requests, concurrency}` | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs}`, then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms); `409` while a run is active |
+| `POST` | `/reset` | `{deleted: n}` authors removed; `409` while a run is active |
+
+## Four examples
 
 **1. Talk to it**
 
@@ -80,7 +95,17 @@ for r in 1 100 1000 3000; do RPS=$r podman compose run --rm k6; done
 jq '.metrics | {rps: .http_reqs.rate, p99: .http_req_duration["p(99)"], dropped: .dropped_iterations.count}' results/raw/rps-*.json
 ```
 
-**3. Watch a limit bite while it runs**
+**3. Closed-model load from the command line**
+
+```sh
+curl -sN -XPOST localhost:3200/run -H 'content-type: application/json' \
+  -d '{"op":"write","requests":2000,"concurrency":200}' | tail -2
+curl -s -XPOST localhost:3200/reset
+```
+
+The last event is the result: req/s, status counts, network errors and latency percentiles. Raise `concurrency` at a fixed `requests` and watch req/s flatten while p99 keeps climbing.
+
+**4. Watch a limit bite while it runs**
 
 ```sh
 RPS=3000 podman compose run --rm k6 &

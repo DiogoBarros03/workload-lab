@@ -23,11 +23,28 @@ services:
       PG_POOL_MAX: "10"
     ports:
       - "3100:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
     depends_on:
       db:
         condition: service_healthy
     cpus: 0.5
     mem_limit: 128m
+
+  # Own container so load generation never eats into the API's CPU/memory quota.
+  loadgen:
+    build: ./loadgen
+    environment:
+      BASE_URL: http://api:3000
+      PORT: "3200"
+    ports:
+      - "3200:3200"
+    depends_on:
+      api:
+        condition: service_healthy
 
   test:
     build: ./api
@@ -37,6 +54,18 @@ services:
     command: ["npm", "test"]
     depends_on:
       db:
+        condition: service_healthy
+
+  loadgen-test:
+    build:
+      context: ./loadgen
+      target: dev
+    profiles: ["test"]
+    environment:
+      BASE_URL: http://api:3000
+    command: ["npm", "test"]
+    depends_on:
+      api:
         condition: service_healthy
 
   k6:
@@ -52,4 +81,5 @@ services:
       - ./results/raw:/out:Z
     command: ["run", "-q", "--summary-export", "/out/rps-${RPS:-1}.json", "/scripts/crud.js"]
     depends_on:
-      - api
+      api:
+        condition: service_healthy

@@ -18,3 +18,4 @@ CREATE TABLE books (
 );
 
 CREATE INDEX books_author_id_idx ON books (author_id);
+CREATE INDEX authors_name_idx ON authors (name);

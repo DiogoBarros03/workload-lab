@@ -1,3 +1,5 @@
 node_modules/
 results/raw/*
 !results/raw/.gitkeep
+.brain/
+.serena/
