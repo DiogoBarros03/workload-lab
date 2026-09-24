@@ -1,0 +1,55 @@
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro,Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    cpus: 1
+    mem_limit: 256m
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://app:app@db:5432/app
+      PORT: "3000"
+      PG_POOL_MAX: "10"
+    ports:
+      - "3100:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    cpus: 0.5
+    mem_limit: 128m
+
+  test:
+    build: ./api
+    profiles: ["test"]
+    environment:
+      DATABASE_URL: postgres://app:app@db:5432/app
+    command: ["npm", "test"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  k6:
+    image: docker.io/grafana/k6:1.1.0
+    profiles: ["load"]
+    user: "0"
+    environment:
+      RPS: ${RPS:-1}
+      DURATION: ${DURATION:-30s}
+      BASE_URL: http://api:3000
+    volumes:
+      - ./loadtest:/scripts:ro,Z
+      - ./results/raw:/out:Z
+    command: ["run", "-q", "--summary-export", "/out/rps-${RPS:-1}.json", "/scripts/crud.js"]
+    depends_on:
+      - api
