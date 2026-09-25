@@ -1,27 +1,29 @@
+# Build context is the repo root, so the UI can import results/000-baseline.json.
 FROM docker.io/library/node:24-alpine AS ui
-WORKDIR /ui
-COPY ui/package*.json ./
+WORKDIR /repo/loadgen/ui
+COPY loadgen/ui/package*.json ./
 RUN npm ci --no-audit --no-fund
-COPY ui ./
+COPY results/000-baseline.json /repo/results/000-baseline.json
+COPY loadgen/ui ./
 RUN npm run build
 
 FROM docker.io/library/node:24-alpine AS dev
 WORKDIR /app
-COPY package*.json ./
+COPY loadgen/package*.json ./
 RUN npm ci --no-audit --no-fund
-COPY src ./src
-COPY tsconfig.json ./
-COPY --from=ui /ui/dist ./ui/dist
+COPY loadgen/src ./src
+COPY loadgen/tsconfig.json ./
+COPY --from=ui /repo/loadgen/ui/dist ./ui/dist
 EXPOSE 3200
 CMD ["node", "src/server.ts"]
 
 FROM docker.io/library/node:24-alpine
 WORKDIR /app
-COPY package*.json ./
+COPY loadgen/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
-COPY src ./src
-COPY tsconfig.json ./
-COPY --from=ui /ui/dist ./ui/dist
+COPY loadgen/src ./src
+COPY loadgen/tsconfig.json ./
+COPY --from=ui /repo/loadgen/ui/dist ./ui/dist
 ENV NODE_ENV=production
 EXPOSE 3200
 CMD ["node", "src/server.ts"]

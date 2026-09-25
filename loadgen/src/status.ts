@@ -173,3 +173,42 @@ export const nextPrev = ({ apiProbe, selfStats, prev, nowMs }: Input): Prev => (
   loadgen: selfStats,
   lastApiOkAt: apiProbe.ok ? nowMs : prev.lastApiOkAt,
 });
+
+export type Status = ReturnType<typeof buildStatus> & { sampledAtMs: number };
+type SamplerDeps = {
+  probe: () => Promise<ApiProbe>;
+  selfStats: () => Cgroup;
+  onError: (err: unknown) => void;
+  intervalMs?: number;
+  now?: () => number;
+};
+
+// One clock for all pollers: rates are deltas between this sampler's own samples.
+export function createStatusSampler({ probe, selfStats, onError, intervalMs = 2000, now = Date.now }: SamplerDeps) {
+  let prev: Prev = { api: null, loadgen: null, lastApiOkAt: null };
+  let latest: Status | null = null;
+  let inflight: Promise<Status> | null = null;
+  let timer: NodeJS.Timeout | undefined;
+
+  async function take(): Promise<Status> {
+    const apiProbe = await probe().catch((err): ApiProbe => ({ ok: false, ...classifyProbeError(err) }));
+    const input = { apiProbe, selfStats: selfStats(), prev, nowMs: now() };
+    prev = nextPrev(input);
+    latest = { ...buildStatus(input), sampledAtMs: input.nowMs };
+    return latest;
+  }
+
+  // A caller or tick during a sample joins it instead of starting another.
+  const sampleOnce = () => (inflight ??= take().finally(() => { inflight = null; }));
+  const tick = () => { sampleOnce().catch(onError); };
+
+  return {
+    start() {
+      tick();
+      timer = setInterval(tick, intervalMs).unref();
+    },
+    stop: () => clearInterval(timer),
+    current: () => latest,
+    sampleOnce,
+  };
+}

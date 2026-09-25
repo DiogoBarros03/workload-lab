@@ -6,8 +6,9 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import { parseCpuMax, parseCpuStat, parseMemMax, readCgroup } from "./cgroup.ts";
-import { buildStatus, classifyProbeError, nextPrev, type ApiProbe, type ApiStats, type DbLoad, type Prev } from "./status.ts";
+import { buildStatus, classifyProbeError, createStatusSampler, nextPrev, type ApiProbe, type ApiStats, type DbLoad, type Prev } from "./status.ts";
 
 test("cpu.max parses a quota to cores, and 'max' or garbage to null", () => {
   assert.equal(parseCpuMax("50000 100000\n"), 0.5);
@@ -243,4 +244,82 @@ test("db rates are null on a counter reset, no elapsed time, or no block reads",
 
 test("db load missing from api stats leaves every db field null", () => {
   assert.deepEqual(dbRow(null, load({})), { service: "db", ...up, ...noCgroup, ...noDb });
+});
+
+// A sampler whose probe and cgroup reads come from queues, with a fixed clock.
+const sampler = (probes: (() => Promise<ApiProbe>)[], selves: ReturnType<typeof sample>[], intervalMs = 2000) => {
+  const errors: unknown[] = [];
+  const s = createStatusSampler({
+    probe: () => probes.shift()!(), selfStats: () => selves.shift()!, intervalMs, now: () => NOW,
+    onError: (err) => errors.push(err),
+  });
+  return { s, errors };
+};
+
+test("sampler: two samples 2 s apart give cores from the delta; current() holds the latest", async () => {
+  const api = [sample({ cpuUsageUsec: 0, sampledAtMs: 10_000 }), sample({ cpuUsageUsec: 900_000, sampledAtMs: 12_000 })];
+  const self = [sample({ cpuUsageUsec: 0, sampledAtMs: 10_000 }), sample({ cpuUsageUsec: 200_000, sampledAtMs: 12_000 })];
+  const { s } = sampler(api.map((st) => async () => okProbe(st)), self);
+  assert.equal(s.current(), null);
+  const first = await s.sampleOnce();
+  assert.equal(byName(first).api.cpuCores, null);
+  assert.equal(first.sampledAtMs, NOW);
+  const second = await s.sampleOnce();
+  assert.equal(byName(second).api.cpuCores, 0.45);
+  assert.equal(byName(second).loadgen.cpuCores, 0.1);
+  assert.equal(s.current(), second);
+});
+
+test("sampler: a probe still in flight is shared, never overlapped by ticks or callers", async () => {
+  let calls = 0;
+  let release = () => {};
+  const slow = () => { calls++; return new Promise<ApiProbe>((r) => { release = () => r(okProbe(sample({}))); }); };
+  const { s } = sampler([slow, slow], [sample({}), sample({})], 10);
+  s.start();
+  const joined = s.sampleOnce();
+  await sleep(60);
+  assert.equal(calls, 1);
+  release();
+  assert.equal(byName(await joined).api.state, "up");
+  await sleep(40);
+  s.stop();
+  assert.equal(calls, 2);
+});
+
+test("sampler: stop() ends sampling", async () => {
+  let calls = 0;
+  const quick = async () => { calls++; return okProbe(sample({})); };
+  const { s } = sampler(Array(100).fill(quick), Array(100).fill(sample({})), 10);
+  s.start();
+  await sleep(35);
+  s.stop();
+  const seen = calls;
+  assert.ok(seen >= 2, String(seen));
+  await sleep(50);
+  assert.equal(calls, seen);
+});
+
+test("sampler: a throwing probe yields a down snapshot, not a rejection", async () => {
+  const refused = Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } });
+  const { s, errors } = sampler([() => Promise.reject(refused)], [sample({})]);
+  const api = byName(await s.sampleOnce()).api;
+  assert.deepEqual([api.state, api.reason], ["down", "The api refused the connection or its name did not resolve (ECONNREFUSED)."]);
+  assert.deepEqual(errors, []);
+});
+
+test("sampler: a failing cgroup read on a tick goes to onError, the timer keeps running", async () => {
+  let reads = 0;
+  const boom = new Error("cgroup gone");
+  const errors: unknown[] = [];
+  const s = createStatusSampler({
+    probe: async () => okProbe(sample({})), selfStats: () => { reads++; throw boom; }, intervalMs: 10, now: () => NOW,
+    onError: (err: unknown) => errors.push(err),
+  });
+  s.start();
+  await sleep(45);
+  s.stop();
+  assert.ok(reads >= 2, String(reads));
+  assert.equal(errors.length, reads);
+  assert.equal(errors[0], boom);
+  assert.equal(s.current(), null);
 });

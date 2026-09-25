@@ -3,6 +3,10 @@ import { fmtInt } from "./format";
 export type Op = "read" | "write" | "mixed";
 // Open model: requests arrive at a fixed rate, finished or not.
 export type RunConfig = { mode: "open"; op: Op; rps: number; durationSec: number };
+
+// The Run form keeps raw field text so partial input can be typed.
+export type RunForm = { op: Op; rps: string; duration: string };
+export const INITIAL_FORM: RunForm = { op: "read", rps: "100", duration: "30" };
 export type Window = { reqs: number; rps: number; p50: number | null; p99: number | null; errors: number };
 export type Progress = {
   done: number;

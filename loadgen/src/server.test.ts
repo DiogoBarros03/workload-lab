@@ -216,10 +216,14 @@ test("GET /status shows an api that stops answering after a success as slow, aft
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
   });
   await once(stub.listen(0, "127.0.0.1"), "listening");
-  const target = buildApp(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`);
-  const rows = async () => Object.fromEntries(
-    (await target.inject({ method: "GET", url: "/status" })).json().containers.map((c: { service: string }) => [c.service, c]),
-  );
+  const target = buildApp(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`, { statusIntervalMs: 60_000 });
+  // A fresh sample, then /status must serve exactly it.
+  const rows = async () => {
+    const fresh = await target.statusSampler.sampleOnce();
+    const res = (await target.inject({ method: "GET", url: "/status" })).json();
+    assert.equal(res.sampledAtMs, fresh.sampledAtMs);
+    return Object.fromEntries(res.containers.map((c: { service: string }) => [c.service, c]));
+  };
   try {
     assert.equal((await rows()).api.state, "up");
     hang = true;
@@ -237,9 +241,12 @@ test("GET /status shows an api that stops answering after a success as slow, aft
 });
 
 test("GET /status shows live api and db, with an api cpu rate on the second sample", async () => {
-  const get = async () => Object.fromEntries(
-    (await live.inject({ method: "GET", url: "/status" })).json().containers.map((c: { service: string }) => [c.service, c]),
-  );
+  const get = async () => {
+    await live.statusSampler.sampleOnce();
+    return Object.fromEntries(
+      (await live.inject({ method: "GET", url: "/status" })).json().containers.map((c: { service: string }) => [c.service, c]),
+    );
+  };
   const first = await get();
   assert.deepEqual([first.api.state, first.api.up, first.api.reason], ["up", true, null]);
   assert.deepEqual([first.db.state, first.db.up, first.db.reason], ["up", true, null]);
@@ -254,16 +261,43 @@ test("GET /status shows live api and db, with an api cpu rate on the second samp
 });
 
 test("GET /status maps postgres load and the api pool onto the db row", async () => {
-  const db = async () => (await live.inject({ method: "GET", url: "/status" })).json()
-    .containers.find((c: { service: string }) => c.service === "db");
+  const db = async () => (await live.statusSampler.sampleOnce()).containers.find((c) => c.service === "db")!;
   await db();
   const res = await live.inject({ method: "POST", url: "/run", payload: { op: "read", requests: 300, concurrency: 10 } });
   assert.equal(res.statusCode, 200);
   const second = await db();
-  assert.ok(second.connUsed >= 1, String(second.connUsed));
-  assert.ok(second.connMax >= second.connUsed, String(second.connMax));
+  assert.ok(second.connUsed! >= 1, String(second.connUsed));
+  assert.ok(second.connMax! >= second.connUsed!, String(second.connMax));
   assert.equal(second.poolMax, 10);
   assert.equal(typeof second.commitsPerSec, "number");
-  assert.ok(second.commitsPerSec > 0, String(second.commitsPerSec));
+  assert.ok(second.commitsPerSec! > 0, String(second.commitsPerSec));
   assert.equal(typeof second.rowsPerSec, "number");
+});
+
+test("GET /status serves one sampled snapshot to every poller, stamped with sampledAtMs", async () => {
+  const target = buildApp(baseUrl, { statusIntervalMs: 60_000 });
+  try {
+    const before = Date.now();
+    const polls = await Promise.all([1, 2, 3].map(() => target.inject({ method: "GET", url: "/status" })));
+    await sleep(200);
+    polls.push(await target.inject({ method: "GET", url: "/status" }));
+    const stamps = polls.map((r) => r.json().sampledAtMs);
+    assert.ok(stamps[0] >= before && stamps[0] <= Date.now(), String(stamps[0]));
+    assert.deepEqual(stamps, [stamps[0], stamps[0], stamps[0], stamps[0]]);
+  } finally {
+    await target.close();
+  }
+});
+
+test("GET /status resamples on the configured interval", async () => {
+  const target = buildApp(baseUrl, { statusIntervalMs: 100 });
+  try {
+    const first = (await target.inject({ method: "GET", url: "/status" })).json();
+    await sleep(350);
+    const later = (await target.inject({ method: "GET", url: "/status" })).json();
+    assert.ok(later.sampledAtMs - first.sampledAtMs >= 200, `${first.sampledAtMs} -> ${later.sampledAtMs}`);
+    assert.equal(typeof later.containers.find((c: { service: string }) => c.service === "api").cpuCores, "number");
+  } finally {
+    await target.close();
+  }
 });

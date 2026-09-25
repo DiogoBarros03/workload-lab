@@ -7,7 +7,7 @@ import Fastify, { type FastifyBaseLogger } from "fastify";
 import fastifyStatic from "@fastify/static";
 import { ensureSeed, reset, run, type Load, type Op } from "./runner.ts";
 import { readCgroup } from "./cgroup.ts";
-import { buildStatus, classifyProbeError, nextPrev, type ApiProbe, type Prev } from "./status.ts";
+import { createStatusSampler, type ApiProbe } from "./status.ts";
 
 // Built by `npm run ui:build`; the Dockerfile copies it in.
 const uiRoot = fileURLToPath(new URL("../ui/dist", import.meta.url));
@@ -88,33 +88,36 @@ async function getJson(url: string) {
   return { status: res.status, body: await res.json() };
 }
 
-// Health may say 503 (db down); any other non-answer is a classified failure.
+// Health may say 503 (db down); a rejection is classified by the sampler.
 async function probeApi(baseUrl: string): Promise<ApiProbe> {
-  try {
-    await resolveHost(baseUrl);
-    const [health, stats] = await Promise.all([getJson(`${baseUrl}/health`), getJson(`${baseUrl}/stats`)]);
-    if (stats.status !== 200 || ![200, 503].includes(health.status)) {
-      return { ok: false, kind: "http", detail: `health ${health.status}, stats ${stats.status}` };
-    }
-    return { ok: true, health: health.status, stats: stats.body };
-  } catch (err) {
-    return { ok: false, ...classifyProbeError(err) };
+  await resolveHost(baseUrl);
+  const [health, stats] = await Promise.all([getJson(`${baseUrl}/health`), getJson(`${baseUrl}/stats`)]);
+  if (stats.status !== 200 || ![200, 503].includes(health.status)) {
+    return { ok: false, kind: "http", detail: `health ${health.status}, stats ${stats.status}` };
+  }
+  return { ok: true, health: health.status, stats: stats.body };
+}
+
+declare module "fastify" {
+  interface FastifyInstance {
+    statusSampler: ReturnType<typeof createStatusSampler>;
   }
 }
 
-// Previous samples for the cpu rate; replaced on each /status, never mutated.
-let prev: Prev = { api: null, loadgen: null, lastApiOkAt: null };
-
-async function status(baseUrl: string) {
-  const input = { apiProbe: await probeApi(baseUrl), selfStats: readCgroup(), prev, nowMs: Date.now() };
-  prev = nextPrev(input);
-  return buildStatus(input);
-}
-
-export function buildApp(baseUrl: string) {
+export function buildApp(baseUrl: string, { statusIntervalMs = 2000 } = {}) {
   const app = Fastify({ logger: process.env.LOG_LEVEL !== "silent" });
+  const sampler = createStatusSampler({
+    probe: () => probeApi(baseUrl),
+    selfStats: () => readCgroup(),
+    onError: (err) => app.log.error(err),
+    intervalMs: statusIntervalMs,
+  });
+  app.decorate("statusSampler", sampler);
+  sampler.start();
+  app.addHook("onClose", async () => sampler.stop());
 
-  app.get("/status", () => status(baseUrl));
+  // Null only before the first sample lands; then wait for it.
+  app.get("/status", () => sampler.current() ?? sampler.sampleOnce());
 
   app.post<RunReq>("/run", { schema: { body: runBody } }, async (req, reply) => {
     if (active) return reply.code(409).send(busy);
