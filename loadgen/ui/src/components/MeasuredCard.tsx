@@ -1,52 +1,46 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { oomKilled, verdictTone, type Baseline, type Run } from "@/lib/baseline";
-import { fmtInt, fmtMs } from "@/lib/format";
+import { groupRuns, type Baseline, type Run } from "@/lib/baseline";
 import { cn } from "@/lib/utils";
-import { RunThisButton } from "./RunThisButton";
-import { Tag } from "./Tag";
+import { MeasuredList } from "./MeasuredList";
+import { GroupTitle } from "./MeasuredParts";
+import { MeasuredRow } from "./MeasuredRow";
 
-const COLS = ["op", "target rps", "achieved rps", "p99 ms", "dropped", "errors", "peak CPU cores", "throttled periods", "pool waiting", "verdict", "cause", "action"];
-const NUM = "px-1.5 text-right font-mono";
+const COLS = ["Operation", "Target RPS", "Achieved RPS", "p99 (ms)", "Failed", "Verdict", "What limited it"];
 
 type Props = { baseline: Baseline; running: boolean; onRun: (r: Run) => void };
 
-function Row({ run, running, onRun }: { run: Run; running: boolean; onRun: (r: Run) => void }) {
-  const killed = oomKilled(run);
-  const nums = [fmtInt(run.targetRps), fmtInt(run.achievedRps), fmtMs(run.p99), fmtInt(run.dropped), fmtInt(run.errors),
-    run.peakCpuCores.toFixed(2), fmtInt(run.throttledPeriods), fmtInt(run.peakPoolWaiting)];
+function MeasuredTable({ runs, cpuQuota, running, onRun }: { runs: Run[]; cpuQuota: number; running: boolean; onRun: (r: Run) => void }) {
   return (
-    <TableRow className="align-top">
-      <TableCell className="px-1.5">{run.op}</TableCell>
-      {nums.map((n, i) => <TableCell key={COLS[i + 1]} className={NUM}>{n}</TableCell>)}
-      <TableCell className="px-1.5"><Tag tone={verdictTone(run.verdict)}>{run.verdict}</Tag></TableCell>
-      <TableCell className="min-w-[11rem] px-1.5 whitespace-normal">
-        {killed && <Tag tone="red" className="mr-1.5 normal-case">OOM-killed</Tag>}
-        {run.cause}
-      </TableCell>
-      <TableCell>
-        <RunThisButton label={`${run.op} at ${run.targetRps} rps`} killedApi={killed} disabled={running} onRun={() => onRun(run)} />
-      </TableCell>
-    </TableRow>
+    <table className="hidden w-full text-meta md:table">
+      <thead>
+        <tr className="border-b">
+          {COLS.map((c, i) => <th key={c} scope="col" className={cn("px-2 pb-2 text-sm font-medium whitespace-nowrap text-ink", i > 0 && i < 5 ? "text-right" : "text-left", i === 0 && "pl-3")}>{c}</th>)}
+          <th scope="col"><span className="sr-only">Action</span></th>
+        </tr>
+      </thead>
+      {groupRuns(runs).map((g) => (
+        <tbody key={g.op}>
+          <tr className="border-b"><th colSpan={8} scope="colgroup" className="pt-6 pb-2 pl-3 text-left font-normal"><GroupTitle op={g.op} /></th></tr>
+          {g.runs.map((r) => <MeasuredRow key={r.targetRps} run={r} cpuQuota={cpuQuota} running={running} onRun={onRun} />)}
+        </tbody>
+      ))}
+    </table>
   );
 }
 
 export function MeasuredCard({ baseline: { measuredAt, setup, runs }, running, onRun }: Props) {
+  const shared = { runs, running, onRun };
   return (
     <Card>
       <CardHeader>
         <CardTitle>Measured</CardTitle>
         <p className="font-mono text-meta text-muted-foreground">
-          measured {measuredAt} · {setup.durationSec} s per run · api {setup.apiCpu} CPU / {setup.apiMemMiB} MiB / pool {setup.poolMax}
+          Measured {measuredAt} · {setup.durationSec} s per run · API {setup.apiCpu} CPU / {setup.apiMemMiB} MiB / pool {setup.poolMax}
         </p>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>{COLS.map((c, i) => <TableHead key={c} className={cn("px-1.5 align-bottom leading-tight whitespace-normal", i > 0 && i < 9 && "text-right")}>{c === "action" ? <span className="sr-only">{c}</span> : c}</TableHead>)}</TableRow>
-          </TableHeader>
-          <TableBody>{runs.map((r) => <Row key={`${r.op}-${r.targetRps}`} run={r} running={running} onRun={onRun} />)}</TableBody>
-        </Table>
+        <MeasuredTable {...shared} cpuQuota={setup.apiCpu} />
+        <MeasuredList {...shared} />
       </CardContent>
     </Card>
   );

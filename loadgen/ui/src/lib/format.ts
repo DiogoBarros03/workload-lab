@@ -43,3 +43,7 @@ export const fromLog = (pos: number, max: number) =>
 
 // Whole numbers only: the server schema rejects fractions and exponents.
 export const validCount = (v: string, max: number) => /^\d+$/.test(v) && +v >= 1 && +v <= max;
+
+export function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { fmtBytes, fmtDuration, fmtInt, fmtMs, fmtSec, fromLog, statusTone, toLog, validCount } from "./format";
+import { sentence, fmtBytes, fmtDuration, fmtInt, fmtMs, fmtSec, fromLog, statusTone, toLog, validCount } from "./format";
 
 const T = " ";
 
@@ -59,4 +59,9 @@ test("fmtDuration shows seconds, then minutes with padded seconds", () => {
   expect(fmtDuration(12400)).toBe("12 s");
   expect(fmtDuration(65000)).toBe("1 m 05 s");
   expect(fmtDuration(3725000)).toBe("62 m 05 s");
+});
+
+test("sentence capitalises the first character only", () => {
+  expect(sentence("comfortable: p99 1.0 ms")).toBe("Comfortable: p99 1.0 ms");
+  expect(sentence("")).toBe("");
 });

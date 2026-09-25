@@ -1,4 +1,4 @@
-import type { Tone } from "./format";
+import { fmtInt, fmtMs, type Tone } from "./format";
 import type { Op } from "./run";
 
 export type Verdict = "ok" | "degraded" | "failed";
@@ -54,7 +54,44 @@ export function parseBaseline(v: unknown): Baseline {
 const TONES: Record<Verdict, Tone> = { ok: "green", degraded: "yellow", failed: "red" };
 export const verdictTone = (v: Verdict): Tone => TONES[v];
 
+export const OP_TITLE: Record<Op, string> = { read: "Read", write: "Write", mixed: "Mixed" };
+export const OP_NOTE: Record<Op, string> = { read: "GET /books/:id", write: "POST /books", mixed: "half reads, half writes" };
+export const VERDICT_LABEL: Record<Verdict, string> = { ok: "OK", degraded: "Degraded", failed: "Failed" };
+
+// A 2px left rule flags runs that did not hold up.
+export const VERDICT_RULE: Record<Verdict, string> = { ok: "", degraded: "border-l-2 border-l-yellow-fg", failed: "border-l-2 border-l-red-fg" };
+
+export const runName = (r: Run) => `${OP_TITLE[r.op]} at ${fmtInt(r.targetRps)} RPS`;
+
 export const oomKilled = (r: Run) => r.cause.includes("OOM-killed");
+
+const OP_ORDER: readonly Op[] = ["read", "write", "mixed"];
+
+// One group per operation that has runs, each sorted by target rate.
+export function groupRuns(runs: readonly Run[]): { op: Op; runs: Run[] }[] {
+  return OP_ORDER
+    .map((op) => ({ op, runs: runs.filter((r) => r.op === op).toSorted((a, b) => a.targetRps - b.targetRps) }))
+    .filter((g) => g.runs.length > 0);
+}
+
+export const failedCount = (r: Run) => r.dropped + r.errors;
+
+// Percent below target, or null when the run reached 95 % of it.
+export function shortfallPct(r: Run): number | null {
+  const ratio = r.achievedRps / r.targetRps;
+  return ratio >= 0.95 ? null : Math.round((1 - ratio) * 100);
+}
+
+// The muted second line of a Measured row; the CPU quota is shown when known.
+export function detailLine(r: Run, cpuQuota?: number): string {
+  const quota = cpuQuota === undefined ? "" : ` / ${cpuQuota.toFixed(2)}`;
+  const parts = [
+    `Peak CPU ${r.peakCpuCores.toFixed(2)}${quota} cores`, `Throttled ${fmtInt(r.throttledPeriods)}`,
+    `Pool waiting ${fmtInt(r.peakPoolWaiting)}`, `Max in flight ${fmtInt(r.maxInFlight)}`, `p50 ${fmtMs(r.p50)} ms`,
+  ];
+  const failed = failedCount(r) > 0 ? [`Dropped ${fmtInt(r.dropped)}`, `Errors ${fmtInt(r.errors)}`] : [];
+  return [...parts, ...failed].join(" · ");
+}
 
 export const runPresetFrom = (r: Run, durationSec: number) => ({ op: r.op, rps: r.targetRps, durationSec });
 

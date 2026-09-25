@@ -30,8 +30,8 @@ function WindowStats({ p, target }: { p: Progress | null; target: number }) {
   const w = p?.window;
   return (
     <div className="grid grid-cols-2 gap-6">
-      <Stat size="lg" label="req/s, last window" value={w ? fmtInt(w.rps) : "–"} unit={`/ ${fmtInt(target)} target`} />
-      <Stat size="lg" label="p99, last window" value={fmtMs(w ? w.p99 : null)} unit="ms" />
+      <Stat size="lg" label="Last window RPS" value={w ? fmtInt(w.rps) : "–"} unit={`/ ${fmtInt(target)} target`} />
+      <Stat size="lg" label="Last window p99" value={fmtMs(w ? w.p99 : null)} unit="ms" />
     </div>
   );
 }

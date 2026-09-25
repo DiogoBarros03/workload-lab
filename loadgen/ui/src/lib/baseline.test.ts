@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
-import { monoDigits, oomKilled, parseBaseline, runPresetFrom, verdictTone, type Run } from "./baseline";
+import {
+  detailLine, failedCount, groupRuns, monoDigits, oomKilled, parseBaseline, runPresetFrom, shortfallPct, verdictTone, type Run,
+} from "./baseline";
 
 const run = (over: Partial<Run> = {}): Run => ({
   op: "write", targetRps: 2000, achievedRps: 984, p50: 9545.2, p99: 12355.7, dropped: 10352, errors: 24437,
@@ -54,4 +56,48 @@ test("monoDigits splits digit runs out, keeping thousands groups and decimals wh
   expect(monoDigits("no numbers")).toEqual([{ text: "no numbers", mono: false }]);
   expect(monoDigits("")).toEqual([]);
   expect(monoDigits("5000").map((p) => p.text).join("")).toBe("5000");
+});
+
+test("groupRuns orders groups read, write, mixed and runs by target, without mutating", () => {
+  const runs = [run({ op: "mixed", targetRps: 3000 }), run({ op: "read", targetRps: 5000 }), run({ op: "write", targetRps: 100 }),
+    run({ op: "read", targetRps: 100 }), run({ op: "mixed", targetRps: 1000 })];
+  const before = runs.map((r) => `${r.op}-${r.targetRps}`);
+  const groups = groupRuns(runs);
+  expect(groups.map((g) => [g.op, g.runs.map((r) => r.targetRps)])).toEqual([["read", [100, 5000]], ["write", [100]], ["mixed", [1000, 3000]]]);
+  expect(runs.map((r) => `${r.op}-${r.targetRps}`)).toEqual(before);
+});
+
+test("groupRuns leaves out operations with no runs", () => {
+  expect(groupRuns([run({ op: "mixed" })]).map((g) => g.op)).toEqual(["mixed"]);
+  expect(groupRuns([])).toEqual([]);
+});
+
+test("failedCount adds dropped and errors", () => {
+  expect(failedCount(run({ dropped: 9051, errors: 2874 }))).toBe(11925);
+  expect(failedCount(run({ dropped: 0, errors: 7 }))).toBe(7);
+  expect(failedCount(run({ dropped: 0, errors: 0 }))).toBe(0);
+});
+
+test("shortfallPct is null at 95 % of target or more, else the rounded shortfall", () => {
+  expect(shortfallPct(run({ targetRps: 1000, achievedRps: 950 }))).toBeNull();
+  expect(shortfallPct(run({ targetRps: 100, achievedRps: 100 }))).toBeNull();
+  expect(shortfallPct(run({ targetRps: 1000, achievedRps: 949 }))).toBe(5);
+  expect(shortfallPct(run({ targetRps: 5000, achievedRps: 3731.1 }))).toBe(25);
+  expect(shortfallPct(run({ targetRps: 3000, achievedRps: 799.8 }))).toBe(73);
+});
+
+const quiet = { peakCpuCores: 0.26, throttledPeriods: 0, peakPoolWaiting: 10, maxInFlight: 12, p50: 1.3, dropped: 0, errors: 0 };
+
+test("detailLine joins the secondary numbers, with the CPU quota when known", () => {
+  expect(detailLine(run(quiet), 0.5)).toBe("Peak CPU 0.26 / 0.50 cores · Throttled 0 · Pool waiting 10 · Max in flight 12 · p50 1.30 ms");
+  expect(detailLine(run(quiet))).toBe("Peak CPU 0.26 cores · Throttled 0 · Pool waiting 10 · Max in flight 12 · p50 1.30 ms");
+});
+
+test("detailLine appends dropped and errors only when something failed", () => {
+  expect(detailLine(run({ ...quiet, dropped: 10352, errors: 0 }), 0.5)).toBe(
+    "Peak CPU 0.26 / 0.50 cores · Throttled 0 · Pool waiting 10 · Max in flight 12 · p50 1.30 ms · Dropped 10\u2009352 · Errors 0",
+  );
+  expect(detailLine(run({ ...quiet, maxInFlight: 10000, p50: 9545.2, errors: 24437 }), 0.5)).toBe(
+    "Peak CPU 0.26 / 0.50 cores · Throttled 0 · Pool waiting 10 · Max in flight 10\u2009000 · p50 9\u2009545 ms · Dropped 0 · Errors 24\u2009437",
+  );
 });

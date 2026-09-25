@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtInt, fmtMs } from "@/lib/format";
 import type { HistoryEntry } from "@/lib/history";
+import { cn } from "@/lib/utils";
 
-const COLS = ["time", "op", "target req/s", "duration", "achieved req/s", "p50 ms", "p99 ms", "dropped", "errors"];
+const COLS = ["Time", "Operation", "Target RPS", "Duration", "Achieved RPS", "p50 (ms)", "p99 (ms)", "Dropped", "Errors"];
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 function Row({ e }: { e: HistoryEntry }) {
@@ -31,7 +32,7 @@ export function HistoryTable({ entries, onClear }: { entries: HistoryEntry[]; on
         : (
           <Table>
             <TableHeader>
-              <TableRow>{COLS.map((c, i) => <TableHead key={c} className={i < 2 ? "" : "text-right"}>{c}</TableHead>)}</TableRow>
+              <TableRow>{COLS.map((c, i) => <TableHead key={c} className={cn("text-sm", i >= 2 && "text-right")}>{c}</TableHead>)}</TableRow>
             </TableHeader>
             <TableBody>{entries.map((e) => <Row key={e.at} e={e} />)}</TableBody>
           </Table>
