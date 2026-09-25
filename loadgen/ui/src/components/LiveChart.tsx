@@ -1,35 +1,65 @@
-import { Grid } from "@/components/charts/grid";
-import { curveMonotoneX } from "@visx/curve";
-import { Line, LineChart } from "@/components/charts/line-chart";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { niceTicks, secondTicks, toLivePoints, type LivePoint } from "@/lib/chart";
+import { fmtInt, fmtMs } from "@/lib/format";
 import type { Point } from "@/lib/run";
+import { AXIS, GRID, orBlank, Key, REF_LABEL, Waiting, dotSwatch, flagDot, lineSwatch } from "./chart-parts";
 
-const LINE = { curve: curveMonotoneX, animate: false, fadeEdges: false, strokeWidth: 1.5 } as const;
+type TipProps = { active?: boolean; payload?: ReadonlyArray<{ payload?: LivePoint }> };
 
-function Key({ swatch, children }: { swatch: string; children: React.ReactNode }) {
-  return <span className="flex items-center gap-2"><span aria-hidden className={`h-0 w-4 border-t-2 ${swatch}`} />{children}</span>;
+function Tip({ active, payload }: TipProps) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  if (!p) return null;
+  const rows = [["t", `${p.t.toFixed(1)} s`], ["rps", fmtInt(p.rps)], ["target", fmtInt(p.target)], ["p99", `${fmtMs(p.p99)} ms`], ["errors", fmtInt(p.errors)]];
+  return (
+    <dl className="grid grid-cols-[auto_auto] gap-x-3 rounded-md border bg-card px-3 py-2 font-mono text-xs text-ink-soft">
+      {rows.map(([k, v]) => <div key={k} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right">{v}</dd></div>)}
+    </dl>
+  );
 }
 
-// ponytail: windows with no completions have no p99 and are left out of the chart.
-export function LiveChart({ series }: { series: Point[] }) {
-  const data = series
-    .filter((p) => p.p99 !== null)
-    .map((p) => ({ date: new Date(p.elapsedMs), rps: p.rps, target: p.targetRps, p99: p.p99 }));
-  if (data.length < 2) return null;
+function Legend() {
   return (
-    <figure className="flex flex-col gap-2">
-      <figcaption className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-        <Key swatch="border-(--chart-1)">req/s achieved</Key>
-        <Key swatch="border-dashed border-(--chart-2)">req/s target</Key>
-        <Key swatch="border-(--chart-2)">p99 ms, own scale</Key>
-      </figcaption>
-      <div role="img" aria-label={`Achieved and target requests per second, and p99 latency, over ${data.length} half-second windows`}>
-        <LineChart data={data} aspectRatio="3 / 1" margin={{ top: 8, right: 8, bottom: 8, left: 8 }} animationDuration={0}>
-          <Grid horizontal numTicksRows={4} />
-          <Line dataKey="rps" yAxisId="left" stroke="var(--chart-1)" {...LINE} />
-          <Line dataKey="target" yAxisId="left" stroke="var(--chart-2)" dashFromIndex={0} showHighlight={false} {...LINE} strokeWidth={1} />
-          <Line dataKey="p99" yAxisId="right" stroke="var(--chart-2)" {...LINE} />
-        </LineChart>
+    <figcaption className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
+      <Key swatch={lineSwatch("var(--chart-rps)")}>req/s achieved</Key>
+      <Key swatch={lineSwatch("var(--chart-ref)", true)}>req/s target</Key>
+      <Key swatch={lineSwatch("var(--chart-p99)")}>p99 ms, right axis</Key>
+      <Key swatch={dotSwatch}>window with errors</Key>
+    </figcaption>
+  );
+}
+
+type Props = { series: Point[]; target: number; durationSec: number };
+
+export function LiveChart({ series, target, durationSec }: Props) {
+  const data = toLivePoints(series);
+  // In-flight requests may finish after the planned duration; the axis follows them.
+  const xMax = Math.max(durationSec, Math.ceil(data.at(-1)?.t ?? 0));
+  // 10 % headroom keeps the target label inside the plot.
+  const left = niceTicks(Math.max(target, ...data.map((p) => p.rps)) * 1.1);
+  const right = niceTicks(Math.max(0, ...data.map((p) => p.p99 ?? 0)));
+  return (
+    <figure className="flex flex-col gap-3" aria-label={`Achieved and target requests per second, and p99 latency, over ${data.length} half-second windows`}>
+      <div aria-hidden className="-mb-2 flex justify-between font-mono text-xs">
+        <span className="text-muted-foreground">req/s</span>
+        <span style={{ color: "var(--chart-p99)" }}>p99 ms</span>
       </div>
+      <div className="relative h-60 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={orBlank(data)} margin={{ top: 8, right: 4, bottom: 4, left: 0 }}>
+            <CartesianGrid {...GRID} />
+            <XAxis {...AXIS} dataKey="t" type="number" domain={[0, xMax]} ticks={secondTicks(xMax)} unit=" s" />
+            <YAxis {...AXIS} yAxisId="left" domain={[0, left.at(-1) as number]} ticks={left} width={44} allowDataOverflow />
+            <YAxis {...AXIS} yAxisId="right" orientation="right" domain={[0, right.at(-1) as number]} ticks={right} width={44} allowDataOverflow />
+            <ReferenceLine yAxisId="left" y={target} stroke="var(--chart-ref)" strokeDasharray="4 4" label={{ ...REF_LABEL, value: "target", position: "insideBottomLeft" }} />
+            <Tooltip content={Tip} cursor={{ stroke: "var(--line)" }} isAnimationActive={false} />
+            <Line yAxisId="left" dataKey="rps" stroke="var(--chart-rps)" strokeWidth={1.75} dot={flagDot("error")} activeDot={{ r: 3 }} isAnimationActive={false} />
+            <Line yAxisId="right" dataKey="p99" stroke="var(--chart-p99)" strokeWidth={1} dot={false} activeDot={{ r: 2.5 }} connectNulls={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+        <Waiting show={data.length === 0} />
+      </div>
+      <Legend />
     </figure>
   );
 }

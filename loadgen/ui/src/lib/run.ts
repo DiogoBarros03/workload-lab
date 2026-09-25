@@ -1,3 +1,5 @@
+import { fmtInt } from "./format";
+
 export type Op = "read" | "write" | "mixed";
 // Open model: requests arrive at a fixed rate, finished or not.
 export type RunConfig = { mode: "open"; op: Op; rps: number; durationSec: number };
@@ -22,7 +24,7 @@ export type Result = {
   errors: number;
   latency: Latency | null;
 };
-export type Point = { elapsedMs: number; rps: number; targetRps: number; p99: number | null };
+export type Point = { elapsedMs: number; rps: number; targetRps: number; p99: number | null; errors: number };
 
 export type RunState = {
   phase: "idle" | "running" | "done" | "error";
@@ -48,7 +50,7 @@ const settled = (p: Progress | null) => (p ? { ...p, inFlight: 0 } : null);
 
 function appendPoint(series: Point[], p: Progress): Point[] {
   if (!p.window) return series;
-  return [...series, { elapsedMs: p.elapsedMs, rps: p.window.rps, targetRps: p.targetRps, p99: p.window.p99 }].slice(-SERIES_CAP);
+  return [...series, { elapsedMs: p.elapsedMs, rps: p.window.rps, targetRps: p.targetRps, p99: p.window.p99, errors: p.window.errors }].slice(-SERIES_CAP);
 }
 
 function settle(s: RunState, a: Exclude<RunAction, { type: "start" }>): RunState {
@@ -74,3 +76,11 @@ export function runReducer(s: RunState, a: RunAction): RunState {
 // Open runs end by time, so progress is elapsed over duration.
 export const progressFraction = (elapsedMs: number, durationSec: number) =>
   Math.min(1, Math.max(0, elapsedMs / (durationSec * 1000)));
+
+// Failed = network errors plus 4xx and 5xx responses; statusCounts excludes network errors.
+export function errorSummary(r: Result): string | null {
+  const httpFailed = Object.entries(r.statusCounts).filter(([code]) => +code >= 400).reduce((sum, [, n]) => sum + n, 0);
+  const failed = r.errors + httpFailed;
+  if (failed === 0) return null;
+  return `${fmtInt(failed)} of ${fmtInt(r.requests)} requests failed (${+((failed / r.requests) * 100).toFixed(1)} %)`;
+}

@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { StatusState } from "@/hooks/use-status";
 import { ContainerRow } from "./ContainerRow";
-import { Sparkline } from "./Sparkline";
+import { CpuChart } from "./CpuChart";
+import { DbChart } from "./DbChart";
 
 export function ContainersCard({ status, className }: { status: StatusState; className?: string }) {
   return (
@@ -17,7 +18,8 @@ export function ContainersCard({ status, className }: { status: StatusState; cla
             {status.containers.map((c) => <ContainerRow key={c.service} c={c} />)}
           </ul>
         )}
-        <Sparkline samples={status.apiCpu} />
+        <CpuChart samples={status.apiCpu} />
+        <DbChart samples={status.dbLoad} />
       </CardContent>
     </Card>
   );

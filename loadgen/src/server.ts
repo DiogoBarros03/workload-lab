@@ -1,10 +1,13 @@
 import { fileURLToPath } from "node:url";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { ServerResponse } from "node:http";
 import Fastify, { type FastifyBaseLogger } from "fastify";
 import fastifyStatic from "@fastify/static";
 import { ensureSeed, reset, run, type Load, type Op } from "./runner.ts";
-import { readCgroup, type Cgroup } from "./cgroup.ts";
-import { buildStatus, type Prev } from "./status.ts";
+import { readCgroup } from "./cgroup.ts";
+import { buildStatus, classifyProbeError, nextPrev, type ApiProbe, type Prev } from "./status.ts";
 
 // Built by `npm run ui:build`; the Dockerfile copies it in.
 const uiRoot = fileURLToPath(new URL("../ui/dist", import.meta.url));
@@ -57,7 +60,7 @@ async function stream(baseUrl: string, body: RunReq["Body"], raw: ServerResponse
     if (!closed.signal.aborted) send(raw, event, data);
   };
   try {
-    const seed = await ensureSeed(baseUrl);
+    const seed = await ensureSeed(baseUrl, closed.signal);
     const onProgress = (p: object) => emit("progress", p);
     emit("result", await run({ baseUrl, seed, ...body, signal: closed.signal, onProgress }));
   } catch (err) {
@@ -67,26 +70,45 @@ async function stream(baseUrl: string, body: RunReq["Body"], raw: ServerResponse
   if (!closed.signal.aborted) raw.end();
 }
 
-// Unreachable or timed out is an expected state here: it renders as down.
-async function probe(url: string) {
+const PROBE_MS = 3000;
+const LOOKUP_MS = 1000;
+
+// A stopped container's name takes ~5 s to fail; give up after 1 s.
+async function resolveHost(baseUrl: string) {
+  const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, "");
+  if (host === "localhost" || isIP(host)) return;
+  const late = sleep(LOOKUP_MS, undefined, { ref: false }).then(() => {
+    throw Object.assign(new Error(`lookup ${host} took over ${LOOKUP_MS} ms`), { code: "ETIMEOUT", syscall: "getaddrinfo" });
+  });
+  await Promise.race([lookup(host), late]);
+}
+
+async function getJson(url: string) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_MS) });
+  return { status: res.status, body: await res.json() };
+}
+
+// Health may say 503 (db down); any other non-answer is a classified failure.
+async function probeApi(baseUrl: string): Promise<ApiProbe> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(1500) });
-    return { status: res.status, body: await res.json() };
-  } catch {
-    return null;
+    await resolveHost(baseUrl);
+    const [health, stats] = await Promise.all([getJson(`${baseUrl}/health`), getJson(`${baseUrl}/stats`)]);
+    if (stats.status !== 200 || ![200, 503].includes(health.status)) {
+      return { ok: false, kind: "http", detail: `health ${health.status}, stats ${stats.status}` };
+    }
+    return { ok: true, health: health.status, stats: stats.body };
+  } catch (err) {
+    return { ok: false, ...classifyProbeError(err) };
   }
 }
 
 // Previous samples for the cpu rate; replaced on each /status, never mutated.
-let prev: Prev = { api: null, loadgen: null };
+let prev: Prev = { api: null, loadgen: null, lastApiOkAt: null };
 
 async function status(baseUrl: string) {
-  const [health, stats] = await Promise.all([probe(`${baseUrl}/health`), probe(`${baseUrl}/stats`)]);
-  const apiStats: Cgroup | null = stats?.status === 200 ? stats.body : null;
-  const selfStats = readCgroup();
-  const result = buildStatus({ apiHealth: health?.status ?? null, apiStats, selfStats, prev });
-  prev = { api: apiStats, loadgen: selfStats };
-  return result;
+  const input = { apiProbe: await probeApi(baseUrl), selfStats: readCgroup(), prev, nowMs: Date.now() };
+  prev = nextPrev(input);
+  return buildStatus(input);
 }
 
 export function buildApp(baseUrl: string) {

@@ -1,7 +1,7 @@
 import { motion } from "motion/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtInt, fmtMs, fmtSec } from "@/lib/format";
-import type { Result } from "@/lib/run";
+import { errorSummary, type Result } from "@/lib/run";
 import { Stat } from "./Stat";
 import { StatusBadges } from "./StatusBadges";
 
@@ -20,6 +20,11 @@ function Throughput({ r }: { r: Result }) {
   );
 }
 
+function Failed({ r }: { r: Result }) {
+  const text = errorSummary(r);
+  return text && <p className="font-mono text-sm text-red-fg">{text}</p>;
+}
+
 export function ResultCard({ result, className }: { result: Result | null; className?: string }) {
   if (!result) return null;
   return (
@@ -32,6 +37,7 @@ export function ResultCard({ result, className }: { result: Result | null; class
             {KEYS.map((k) => <Stat key={k} label={k} value={fmtMs(result.latency?.[k] ?? null)} unit="ms" />)}
           </div>
           <StatusBadges result={result} />
+          <Failed r={result} />
         </CardContent>
       </Card>
     </motion.div>

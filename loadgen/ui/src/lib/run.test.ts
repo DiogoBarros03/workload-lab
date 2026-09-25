@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { initialRun, progressFraction, runReducer, type Progress, type Result, type RunState } from "./run";
+import { errorSummary, initialRun, progressFraction, runReducer, type Progress, type Result, type RunState } from "./run";
 
 const config = { mode: "open" as const, op: "read" as const, rps: 100, durationSec: 30 };
 const result: Result = {
@@ -22,8 +22,8 @@ test("progress stores the counters, dropped and target, and appends one point pe
   const s = runReducer(runReducer(running(), { type: "progress", progress: progress(100) }), { type: "progress", progress: progress(200) });
   expect(s.progress).toMatchObject({ done: 200, dropped: 3, targetRps: 100 });
   expect(s.series).toEqual([
-    { elapsedMs: 100, rps: 200, targetRps: 100, p99: 10 },
-    { elapsedMs: 200, rps: 400, targetRps: 100, p99: 20 },
+    { elapsedMs: 100, rps: 200, targetRps: 100, p99: 10, errors: 0 },
+    { elapsedMs: 200, rps: 400, targetRps: 100, p99: 20, errors: 0 },
   ]);
 });
 
@@ -83,4 +83,20 @@ test("progressFraction is elapsed over duration, clamped to 0..1", () => {
   expect(progressFraction(30000, 30)).toBe(1);
   expect(progressFraction(31200, 30)).toBe(1);
   expect(progressFraction(-5, 30)).toBe(0);
+});
+
+test("errorSummary counts network errors and 4xx/5xx over all requests", () => {
+  expect(errorSummary(result)).toBeNull();
+  expect(errorSummary({ ...result, requests: 500, errors: 20, statusCounts: { "200": 300, "404": 80, "503": 100 } }))
+    .toBe("200 of 500 requests failed (40 %)");
+  expect(errorSummary({ ...result, requests: 3000, errors: 0, statusCounts: { "503": 3000 } }))
+    .toBe("3 000 of 3 000 requests failed (100 %)");
+  expect(errorSummary({ ...result, requests: 3, errors: 1, statusCounts: { "200": 2 } })).toBe("1 of 3 requests failed (33.3 %)");
+});
+
+test("progress windows carry their error count into the series", () => {
+  const p = { ...progress(100), window: { reqs: 5, rps: 50, p50: null, p99: null, errors: 7 } };
+  expect(runReducer(running(), { type: "progress", progress: p }).series).toEqual([
+    { elapsedMs: 100, rps: 50, targetRps: 100, p99: null, errors: 7 },
+  ]);
 });

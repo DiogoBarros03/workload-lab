@@ -15,6 +15,9 @@
   --ink-muted: #787774;
   --track: #efeeea;
   --fill: #111111;
+  --bar-fill: #111111;
+  --bar-warn: #956400;
+  --bar-hot: #9f2f2d;
   --red-bg: #fdebec;
   --red-fg: #9f2f2d;
   --blue-bg: #e1f3fe;
@@ -70,6 +73,11 @@
   --chart-marker-badge-foreground: #ffffff;
   --chart-segment-background: rgba(17, 17, 17, 0.04);
   --chart-segment-line: var(--ink-muted);
+  --chart-rps: #2f3437;
+  --chart-ref: #787774;
+  --chart-p99: #1f6c9f;
+  --chart-error: #9f2f2d;
+  --chart-commits: #5b9bc6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -82,6 +90,9 @@
     --ink-muted: #9b9a97;
     --track: rgba(255, 255, 255, 0.08);
     --fill: #ededec;
+    --bar-fill: #ededec;
+    --bar-warn: #e9c878;
+    --bar-hot: #f4b4b1;
     --red-bg: #3a2021;
     --red-fg: #f4b4b1;
     --blue-bg: #17303f;
@@ -103,6 +114,11 @@
     --chart-tooltip-muted: #55544f;
     --chart-marker-badge-foreground: #111111;
     --chart-segment-background: rgba(255, 255, 255, 0.04);
+    --chart-rps: #d4d3d0;
+    --chart-ref: #9b9a97;
+    --chart-p99: #9cd3f5;
+    --chart-error: #f4b4b1;
+    --chart-commits: #7fb8dc;
   }
 }
 
@@ -133,6 +149,9 @@
   --color-ink-soft: var(--ink-soft);
   --color-track: var(--track);
   --color-fill: var(--fill);
+  --color-bar-fill: var(--bar-fill);
+  --color-bar-warn: var(--bar-warn);
+  --color-bar-hot: var(--bar-hot);
   --color-red-bg: var(--red-bg);
   --color-red-fg: var(--red-fg);
   --color-blue-bg: var(--blue-bg);

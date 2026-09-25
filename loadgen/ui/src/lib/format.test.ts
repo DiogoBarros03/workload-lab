@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { fmtBytes, fmtInt, fmtMs, fmtSec, fromLog, statusTone, toLog, validCount } from "./format";
+import { fmtBytes, fmtDuration, fmtInt, fmtMs, fmtSec, fromLog, statusTone, toLog, validCount } from "./format";
 
 const T = " ";
 
@@ -52,4 +52,11 @@ test("log slider maps both ends exactly and round-trips values", () => {
 test("validCount accepts whole numbers within 1..max only", () => {
   expect(["1", "10", "5000"].map((v) => validCount(v, 5000))).toEqual([true, true, true]);
   expect(["", "0", "5001", "1.5", "-3", "1e3", " 7"].map((v) => validCount(v, 5000))).toEqual(Array(7).fill(false));
+});
+
+test("fmtDuration shows seconds, then minutes with padded seconds", () => {
+  expect(fmtDuration(0)).toBe("0 s");
+  expect(fmtDuration(12400)).toBe("12 s");
+  expect(fmtDuration(65000)).toBe("1 m 05 s");
+  expect(fmtDuration(3725000)).toBe("62 m 05 s");
 });

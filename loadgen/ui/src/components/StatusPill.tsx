@@ -1,13 +1,17 @@
+import { Hourglass, WarningCircle } from "@phosphor-icons/react";
+import type { Health } from "@/lib/status";
 import { Tag } from "./Tag";
 
-// Null means no status answer yet, which is neither up nor down.
-export function StatusPill({ name, up }: { name?: string; up: boolean | null }) {
-  const tone = up === null ? "neutral" : up ? "green" : "red";
-  const word = up === null ? "unknown" : up ? "up" : "down";
+const TONE = { up: "green", slow: "yellow", down: "red", unknown: "neutral" } as const;
+const WORD = { up: "up", slow: "slow", down: "error", unknown: "unknown" } as const;
+
+export function StatusPill({ name, health }: { name?: string; health: Health }) {
   return (
-    <Tag tone={tone}>
-      {name && <span className="font-mono normal-case">{name} </span>}
-      {word}
+    <Tag tone={TONE[health]}>
+      {health === "down" && <WarningCircle weight="bold" aria-hidden />}
+      {health === "slow" && <Hourglass weight="bold" aria-hidden />}
+      {name && <span className="font-mono normal-case">{name}</span>}
+      {WORD[health]}
     </Tag>
   );
 }

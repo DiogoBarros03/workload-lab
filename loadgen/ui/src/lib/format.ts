@@ -10,6 +10,13 @@ export function fmtMs(ms: number | null): string {
   return fmtInt(ms);
 }
 
+// Outage durations: whole seconds, minutes once past one.
+export function fmtDuration(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec} s`;
+  return `${Math.floor(sec / 60)} m ${String(sec % 60).padStart(2, "0")} s`;
+}
+
 export const fmtSec = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
 const UNITS = ["B", "KiB", "MiB", "GiB"];

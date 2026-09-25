@@ -47,6 +47,10 @@ const PG_STATUS: Record<string, [number, string]> = {
   "23514": [400, "constraint violated"],
 };
 
+// Connection-level failures: the database is gone, not the request wrong.
+const DB_DOWN_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "57P01", "57P03", "08006", "08001"]);
+const dbDown = (err: FastifyError) => DB_DOWN_CODES.has(String(err.code)) || /terminat|ECONNREFUSED/.test(err.message);
+
 type Repo<T, In> = {
   create: (i: In) => Promise<T | null>;
   get: (id: number) => Promise<T | null>;
@@ -81,6 +85,10 @@ export function buildApp(store: Store) {
   app.setErrorHandler((err: FastifyError, req, reply) => {
     const mapped = PG_STATUS[String(err.code)];
     if (mapped) return reply.code(mapped[0]).send({ error: mapped[1] });
+    if (dbDown(err)) {
+      req.log.warn(err);
+      return reply.code(503).send({ error: "database unavailable" });
+    }
     const status = err.statusCode ?? 500;
     if (status < 500) return reply.code(status).send({ error: err.message });
     req.log.error(err);
@@ -96,7 +104,17 @@ export function buildApp(store: Store) {
     }
   });
 
-  app.get("/stats", async () => readCgroup());
+  // The db part fails alone; cgroup and pool numbers never need the db.
+  app.get("/stats", async (req) => {
+    const cgroup = readCgroup();
+    const pool = store.poolStats();
+    try {
+      return { ...cgroup, db: { ...(await store.dbLoad()), sampledAtMs: Date.now() }, pool };
+    } catch (err) {
+      req.log.warn(err);
+      return { ...cgroup, db: null, pool };
+    }
+  });
 
   registerCrud<unknown, AuthorInput>(app, "/authors", store.authors, authorBody);
   registerCrud<unknown, BookInput>(app, "/books", store.books, bookBody);

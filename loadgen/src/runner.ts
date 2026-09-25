@@ -24,6 +24,7 @@ const BOOKS_PER_SEED = 10;
 const SINK_AUTHORS = 20;
 const LIST_LIMIT = 1000;
 const TIMEOUT_MS = 10_000;
+const SETUP_TIMEOUT_MS = 5_000;
 const RATE_TICK_MS = 10;
 const DEFAULT_MAX_IN_FLIGHT = 10_000;
 
@@ -40,12 +41,17 @@ const bookBody = (authorId: number) => ({
   stock: 1,
 });
 
-// Seeding and reset are setup, not load: any unexpected status must fail loudly.
-async function call<T>(baseUrl: string, method: string, path: string, body?: object): Promise<T | null> {
+// Setup target: the run's signal, when there is one, cancels every setup call.
+type Target = { baseUrl: string; signal?: AbortSignal };
+
+// Seeding and reset are setup, not load: any unexpected status or silence must fail loudly.
+async function call<T>({ baseUrl, signal }: Target, method: string, path: string, body?: object): Promise<T | null> {
+  const limit = AbortSignal.timeout(SETUP_TIMEOUT_MS);
   const res = await fetch(baseUrl + path, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
+    signal: signal ? AbortSignal.any([signal, limit]) : limit,
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`${method} ${path} -> ${res.status} ${await res.text()}`);
@@ -55,59 +61,66 @@ async function call<T>(baseUrl: string, method: string, path: string, body?: obj
 type Author = { id: number; name: string };
 type Book = { id: number };
 
-async function create<T>(baseUrl: string, path: string, body: object): Promise<T> {
-  const row = await call<T>(baseUrl, "POST", path, body);
+async function create<T>(target: Target, path: string, body: object): Promise<T> {
+  const row = await call<T>(target, "POST", path, body);
   if (!row) throw new Error(`POST ${path} returned 404`);
   return row;
 }
 
-async function authorsNamed(baseUrl: string, name: string): Promise<Author[]> {
-  const rows = await call<Author[]>(baseUrl, "GET", `/authors?name=${name}&limit=${LIST_LIMIT}`);
+async function authorsNamed(target: Target, name: string): Promise<Author[]> {
+  const rows = await call<Author[]>(target, "GET", `/authors?name=${name}&limit=${LIST_LIMIT}`);
   if (!rows) throw new Error("GET /authors returned 404");
   return rows;
 }
 
-async function ensureAuthors(baseUrl: string, name: string, count: number): Promise<number[]> {
-  const existing = (await authorsNamed(baseUrl, name)).map((a) => a.id);
+async function ensureAuthors(target: Target, name: string, count: number): Promise<number[]> {
+  const existing = (await authorsNamed(target, name)).map((a) => a.id);
   const created = await Promise.all(
     Array.from({ length: Math.max(0, count - existing.length) }, () =>
-      create<Author>(baseUrl, "/authors", { name }),
+      create<Author>(target, "/authors", { name }),
     ),
   );
   return [...existing, ...created.map((a) => a.id)].slice(0, count);
 }
 
-async function seedBooksOf(baseUrl: string, authorId: number): Promise<number[]> {
+async function seedBooksOf(target: Target, authorId: number): Promise<number[]> {
   // null means the author vanished mid-seed (a concurrent reset): it has no books.
-  const listed = (await call<Book[]>(baseUrl, "GET", `/authors/${authorId}/books`)) ?? [];
+  const listed = (await call<Book[]>(target, "GET", `/authors/${authorId}/books`)) ?? [];
   const have = listed.slice(0, BOOKS_PER_SEED).map((b) => b.id);
   const made = await Promise.all(
     Array.from({ length: BOOKS_PER_SEED - have.length }, () =>
-      create<Book>(baseUrl, "/books", bookBody(authorId)),
+      create<Book>(target, "/books", bookBody(authorId)),
     ),
   );
   return [...have, ...made.map((b) => b.id)];
 }
 
-export async function ensureSeed(baseUrl: string): Promise<Seed> {
+async function seed(target: Target): Promise<Seed> {
   const [seedIds, sinkIds] = await Promise.all([
-    ensureAuthors(baseUrl, "seed", SEED_AUTHORS),
-    ensureAuthors(baseUrl, "sink", SINK_AUTHORS),
+    ensureAuthors(target, "seed", SEED_AUTHORS),
+    ensureAuthors(target, "sink", SINK_AUTHORS),
   ]);
-  const books = await Promise.all(seedIds.map((id) => seedBooksOf(baseUrl, id)));
+  const books = await Promise.all(seedIds.map((id) => seedBooksOf(target, id)));
   return { sinkIds, bookIds: books.flat() };
 }
 
+export function ensureSeed(baseUrl: string, signal?: AbortSignal): Promise<Seed> {
+  return seed({ baseUrl, signal }).catch((err: unknown) => {
+    throw new Error(`seed failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+  });
+}
+
 // One page per pass; repeat until a pass finds nothing left.
-async function deleteNamed(baseUrl: string, name: string): Promise<number> {
-  const doomed = await authorsNamed(baseUrl, name);
+async function deleteNamed(target: Target, name: string): Promise<number> {
+  const doomed = await authorsNamed(target, name);
   if (doomed.length === 0) return 0;
-  await Promise.all(doomed.map((a) => call(baseUrl, "DELETE", `/authors/${a.id}`)));
-  return doomed.length + (await deleteNamed(baseUrl, name));
+  await Promise.all(doomed.map((a) => call(target, "DELETE", `/authors/${a.id}`)));
+  return doomed.length + (await deleteNamed(target, name));
 }
 
 export async function reset(baseUrl: string): Promise<number> {
-  return (await deleteNamed(baseUrl, "seed")) + (await deleteNamed(baseUrl, "sink"));
+  const target = { baseUrl };
+  return (await deleteNamed(target, "seed")) + (await deleteNamed(target, "sink"));
 }
 
 function requestFor(baseUrl: string, op: Op, seed: Seed): [string, RequestInit] {

@@ -57,7 +57,39 @@ export type BookInput = {
   stock: number;
 };
 
-export function createStore(pool: pg.Pool) {
+export type DbLoad = {
+  maxConnections: number;
+  clientBackends: number;
+  activeBackends: number;
+  waitingBackends: number;
+  xactCommit: number;
+  xactRollback: number;
+  blksHit: number;
+  blksRead: number;
+  tupInserted: number;
+  tupUpdated: number;
+  tupDeleted: number;
+  tupFetched: number;
+};
+
+// Server-wide backends plus cumulative counters for this database, in one round trip.
+const DB_LOAD_SQL = `
+  SELECT
+    (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS "maxConnections",
+    a.client::int AS "clientBackends", a.active::int AS "activeBackends", a.waiting::int AS "waitingBackends",
+    d.xact_commit::float8 AS "xactCommit", d.xact_rollback::float8 AS "xactRollback",
+    d.blks_hit::float8 AS "blksHit", d.blks_read::float8 AS "blksRead",
+    d.tup_inserted::float8 AS "tupInserted", d.tup_updated::float8 AS "tupUpdated",
+    d.tup_deleted::float8 AS "tupDeleted", d.tup_fetched::float8 AS "tupFetched"
+  FROM pg_stat_database d,
+    (SELECT count(*) AS client,
+       count(*) FILTER (WHERE state = 'active' AND pid <> pg_backend_pid()) AS active,
+       count(*) FILTER (WHERE state = 'active' AND wait_event IS NOT NULL AND pid <> pg_backend_pid()) AS waiting
+     FROM pg_stat_activity WHERE backend_type = 'client backend') a
+  WHERE d.datname = current_database()`;
+
+// adminPool serves health and stats so they never queue behind traffic.
+export function createStore(pool: pg.Pool, adminPool: pg.Pool) {
   return {
     authors: createRepo<Author, AuthorInput>(pool, "authors", ["name", "country"]),
     books: createRepo<Book, BookInput>(pool, "books", [
@@ -81,7 +113,14 @@ export function createStore(pool: pg.Pool) {
       );
       return rows;
     },
-    ping: () => pool.query("SELECT 1"),
+    ping: () => adminPool.query("SELECT 1"),
+    dbLoad: async (): Promise<DbLoad> => (await adminPool.query<DbLoad>(DB_LOAD_SQL)).rows[0],
+    poolStats: () => ({
+      max: pool.options.max,
+      total: pool.totalCount,
+      idle: pool.idleCount,
+      waiting: pool.waitingCount,
+    }),
   };
 }
 

@@ -12,9 +12,9 @@ import { RunActions } from "./RunActions";
 const MAX_RPS = 5000;
 const MAX_DURATION_SEC = 300;
 
-type Props = { running: boolean; runError: string | null; onRun: (c: RunConfig) => void; onStop: () => void; className?: string };
+type Props = { running: boolean; warning: string | null; onRun: (c: RunConfig) => void; onStop: () => void; className?: string };
 
-export function RunCard({ running, runError, onRun, onStop, className }: Props) {
+export function RunCard({ running, warning, onRun, onStop, className }: Props) {
   const [op, setOp] = useState<Op>("read");
   const [rps, setRps] = useState("100");
   const [duration, setDuration] = useState("30");
@@ -38,7 +38,8 @@ export function RunCard({ running, runError, onRun, onStop, className }: Props) 
           />
           <Presets disabled={running} onPick={pick} />
           <RunActions running={running} valid={valid} resetBusy={reset.busy} onStop={onStop} onReset={reset.reset} />
-          <Notice error={runError ?? reset.error} note={reset.note} />
+          {warning && <p className="text-sm text-red-fg">{warning}</p>}
+          <Notice error={reset.error} note={reset.note} />
         </form>
       </CardContent>
     </Card>

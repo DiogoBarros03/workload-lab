@@ -8,6 +8,7 @@ import { useHistory } from "@/hooks/use-history";
 import { useRun } from "@/hooks/use-run";
 import type { StatusState } from "@/hooks/use-status";
 import type { Project } from "@/lib/projects";
+import { runWarning } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 export function BaselinePage({ project, status }: { project: Project; status: StatusState }) {
@@ -22,7 +23,7 @@ export function BaselinePage({ project, status }: { project: Project; status: St
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5 lg:gap-6">
         <RunCard
           className={cn("lg:col-span-2", run.config !== null && "lg:row-span-2")}
-          running={run.phase === "running"} runError={run.message} onRun={start} onStop={stop}
+          running={run.phase === "running"} warning={runWarning(status.view)} onRun={start} onStop={stop}
         />
         <ContainersCard status={status} className="lg:col-span-3" />
         <LiveCard run={run} className="lg:col-span-3" />

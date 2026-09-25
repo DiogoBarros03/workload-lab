@@ -1,5 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { buildApp } from "./server.ts";
@@ -7,8 +9,12 @@ import { buildApp } from "./server.ts";
 process.env.LOG_LEVEL = "silent";
 const baseUrl = process.env.BASE_URL;
 if (!baseUrl) throw new Error("BASE_URL is required");
-// Unreachable target: exercises the HTTP boundary without reaching the API.
-const app = buildApp("http://127.0.0.1:1");
+// Unreachable target: a port just released, so connecting is refused.
+const closed = createServer();
+await once(closed.listen(0, "127.0.0.1"), "listening");
+const closedPort = (closed.address() as AddressInfo).port;
+await once(closed.close(), "close");
+const app = buildApp(`http://127.0.0.1:${closedPort}`);
 // Live target: the API from compose.
 const live = buildApp(baseUrl);
 after(() => Promise.all([app.close(), live.close()]));
@@ -72,6 +78,26 @@ test("POST /run reports a target failure as an error event", async () => {
   assert.equal(res.statusCode, 200);
   assert.match(res.headers["content-type"] as string, /text\/event-stream/);
   assert.match(res.body, /^event: error\ndata: /m);
+});
+
+test("a run against a target that never answers fails within 6 s and frees the slot", { timeout: 15_000 }, async (t) => {
+  const stub = createServer(() => {});
+  await once(stub.listen(0, "127.0.0.1"), "listening");
+  const target = buildApp(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`);
+  t.after(async () => {
+    stub.closeAllConnections();
+    stub.close();
+    await target.close();
+  });
+  const small = { op: "read", requests: 1, concurrency: 1 };
+  const started = Date.now();
+  const first = await target.inject({ method: "POST", url: "/run", payload: small });
+  assert.ok(Date.now() - started < 6000, String(Date.now() - started));
+  const seen = events(first.body);
+  assert.deepEqual(seen.map((e) => e.event), ["error"], first.body);
+  assert.match(seen[0].data.error, /^Error: seed failed: /);
+  const second = await target.inject({ method: "POST", url: "/run", payload: small });
+  assert.equal(second.statusCode, 200);
 });
 
 test("POST /reset answers 502 when the target is unreachable", async () => {
@@ -153,10 +179,61 @@ test("GET /status reports api and db down, not an error, when the api is unreach
   const rows = Object.fromEntries(res.json().containers.map((c: { service: string }) => [c.service, c]));
   assert.deepEqual(Object.keys(rows), ["api", "db", "loadgen"]);
   assert.equal(rows.api.up, false);
+  assert.equal(rows.api.state, "down");
+  assert.equal(rows.api.reason, "The api refused the connection or its name did not resolve (ECONNREFUSED).");
   assert.equal(rows.db.up, false);
+  assert.equal(rows.db.state, "down");
+  assert.equal(rows.db.reason, "The api is unreachable, so the database cannot be checked.");
   assert.equal(rows.api.memBytes, null);
   assert.equal(rows.loadgen.up, true);
+  assert.equal(rows.loadgen.state, "up");
+  assert.equal(rows.loadgen.reason, null);
   assert.equal(typeof rows.loadgen.memBytes, "number");
+});
+
+test("GET /status reports an api whose hostname does not resolve as down within about 1 s", { timeout: 15_000 }, async () => {
+  const target = buildApp("http://api.invalid:3000");
+  try {
+    const started = Date.now();
+    const res = await target.inject({ method: "GET", url: "/status" });
+    const took = Date.now() - started;
+    const api = res.json().containers.find((c: { service: string }) => c.service === "api");
+    assert.ok(took < 1500, String(took));
+    assert.equal(api.state, "down");
+    assert.match(api.reason, /^The api's hostname does not resolve \((ENOTFOUND|EAI_AGAIN|ETIMEOUT)\)\.$/);
+  } finally {
+    await target.close();
+  }
+});
+
+test("GET /status shows an api that stops answering after a success as slow, after the 3 s probe", async () => {
+  let hang = false;
+  const stats = { sampledAtMs: 0, db: null, pool: { max: 10, total: 0, idle: 0, waiting: 0 } };
+  // Answers until `hang` is set, then never responds.
+  const stub = createServer((req, res) => {
+    if (hang) return;
+    const body = req.url === "/health" ? { status: "ok" } : { ...stats, sampledAtMs: Date.now() };
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
+  });
+  await once(stub.listen(0, "127.0.0.1"), "listening");
+  const target = buildApp(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`);
+  const rows = async () => Object.fromEntries(
+    (await target.inject({ method: "GET", url: "/status" })).json().containers.map((c: { service: string }) => [c.service, c]),
+  );
+  try {
+    assert.equal((await rows()).api.state, "up");
+    hang = true;
+    const started = Date.now();
+    const slow = await rows();
+    const took = Date.now() - started;
+    assert.ok(took >= 2900 && took < 4500, String(took));
+    assert.deepEqual([slow.api.state, slow.api.up, slow.api.reason], ["slow", true, "The api did not answer within 3 s but answered in the last 30 s."]);
+    assert.deepEqual([slow.db.state, slow.db.up], ["slow", true]);
+  } finally {
+    await target.close();
+    stub.closeAllConnections();
+    stub.close();
+  }
 });
 
 test("GET /status shows live api and db, with an api cpu rate on the second sample", async () => {
@@ -164,8 +241,8 @@ test("GET /status shows live api and db, with an api cpu rate on the second samp
     (await live.inject({ method: "GET", url: "/status" })).json().containers.map((c: { service: string }) => [c.service, c]),
   );
   const first = await get();
-  assert.equal(first.api.up, true);
-  assert.equal(first.db.up, true);
+  assert.deepEqual([first.api.state, first.api.up, first.api.reason], ["up", true, null]);
+  assert.deepEqual([first.db.state, first.db.up, first.db.reason], ["up", true, null]);
   await sleep(1000);
   const second = await get();
   assert.equal(typeof second.api.cpuCores, "number");
@@ -174,4 +251,19 @@ test("GET /status shows live api and db, with an api cpu rate on the second samp
   assert.equal(second.api.memMaxBytes, 134217728);
   assert.equal(typeof second.api.memBytes, "number");
   assert.equal(typeof second.api.nrThrottled, "number");
+});
+
+test("GET /status maps postgres load and the api pool onto the db row", async () => {
+  const db = async () => (await live.inject({ method: "GET", url: "/status" })).json()
+    .containers.find((c: { service: string }) => c.service === "db");
+  await db();
+  const res = await live.inject({ method: "POST", url: "/run", payload: { op: "read", requests: 300, concurrency: 10 } });
+  assert.equal(res.statusCode, 200);
+  const second = await db();
+  assert.ok(second.connUsed >= 1, String(second.connUsed));
+  assert.ok(second.connMax >= second.connUsed, String(second.connMax));
+  assert.equal(second.poolMax, 10);
+  assert.equal(typeof second.commitsPerSec, "number");
+  assert.ok(second.commitsPerSec > 0, String(second.commitsPerSec));
+  assert.equal(typeof second.rowsPerSec, "number");
 });

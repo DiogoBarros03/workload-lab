@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -221,4 +221,38 @@ test("reset deletes every seed and sink author, then seeding rebuilds them", asy
   const fresh = await ensureSeed(baseUrl);
   assert.equal(fresh.sinkIds.length, 20);
   assert.equal(fresh.bookIds.length, 200);
+});
+
+// A target that accepts connections and never answers; closed after the test either way.
+async function silent(t: TestContext) {
+  const server = createServer(() => {});
+  t.after(() => stop(server));
+  return listen(server);
+}
+
+test("seeding a target that never answers rejects with 'seed failed' after the 5 s setup timeout", { timeout: 15_000 }, async (t) => {
+  const url = await silent(t);
+  const started = performance.now();
+  await assert.rejects(ensureSeed(url, never()), /^Error: seed failed: .*timeout/);
+  const took = performance.now() - started;
+  assert.ok(took >= 4900 && took < 6000, String(took));
+});
+
+test("aborting the run's signal stops seeding at once", { timeout: 15_000 }, async (t) => {
+  const url = await silent(t);
+  const ctl = new AbortController();
+  const started = performance.now();
+  const pending = ensureSeed(url, ctl.signal);
+  await sleep(100);
+  ctl.abort();
+  await assert.rejects(pending, /^Error: seed failed: /);
+  assert.ok(performance.now() - started < 1000, String(performance.now() - started));
+});
+
+test("reset against a target that never answers rejects after the 5 s setup timeout", { timeout: 15_000 }, async (t) => {
+  const url = await silent(t);
+  const started = performance.now();
+  await assert.rejects(reset(url), /timeout/);
+  const took = performance.now() - started;
+  assert.ok(took >= 4900 && took < 6000, String(took));
 });

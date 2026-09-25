@@ -1,5 +1,7 @@
 import type { Container } from "@/hooks/use-status";
 import { fmtBytes, fmtInt } from "@/lib/format";
+import { stateOf } from "@/lib/status";
+import { DbLoadPanel } from "./DbLoadPanel";
 import { Gauge } from "./Gauge";
 import { StatusPill } from "./StatusPill";
 
@@ -11,9 +13,10 @@ function Throttled({ c }: { c: Container }) {
   return <span className="font-mono text-sm text-muted-foreground">throttled {fmtInt(c.nrThrottled)}</span>;
 }
 
-// The db row reports no cgroup: skip it rather than show two empty gauges.
-function Usage({ c }: { c: Container }) {
-  if (c.cpuCores === null && c.memBytes === null) return null;
+// Matches the two gauges' height, so the card does not jump on an outage.
+function Body({ c }: { c: Container }) {
+  if (c.service === "db") return <DbLoadPanel c={c} />;
+  if (!c.up) return <p className="flex min-h-[80px] items-center text-sm text-muted-foreground sm:min-h-[38px]">no data</p>;
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <Gauge label="CPU" used={c.cpuCores} limit={c.cpuQuotaCores} fmt={cores} />
@@ -22,17 +25,22 @@ function Usage({ c }: { c: Container }) {
   );
 }
 
+// The server's reason is shown only when the service is not simply up.
 export function ContainerRow({ c }: { c: Container }) {
+  const state = stateOf(c);
   return (
     <li className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-ink">{c.service}</span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col">
+          <span className="font-mono text-ink">{c.service}</span>
+          {state !== "up" && c.reason && <span className="font-mono text-xs text-muted-foreground">{c.reason}</span>}
+        </div>
         <div className="flex items-center gap-3">
           <Throttled c={c} />
-          <StatusPill up={c.up} />
+          <StatusPill health={state} />
         </div>
       </div>
-      <Usage c={c} />
+      <Body c={c} />
     </li>
   );
 }

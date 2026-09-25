@@ -40,6 +40,7 @@ an unknown author is a `404`. Both come from the database constraint, not from a
 | Method | Path | Answers |
 |---|---|---|
 | `GET` | `/health` | `200 {status: ok}` or `503` when the DB does not answer |
+| `GET` | `/stats` | `200` with this container's cgroup cpu and memory, `db` (Postgres connections, active and waiting backends, cumulative commit, block and row counters; `null` if the query fails) and `pool` `{max, total, idle, waiting}` |
 | `POST` | `/authors`, `/books` | `201` with the row; `400` on bad input; `409` duplicate ISBN; `404` unknown author |
 | `GET` | `/authors?name=&limit=` | `200` with authors ordered by id, exact `name` filter optional (non-empty), `limit` 1..1000 (default 100); `400` on bad query |
 | `GET` | `/authors/:id`, `/books/:id` | `200` or `404` |
@@ -47,7 +48,8 @@ an unknown author is a `404`. Both come from the database constraint, not from a
 | `DELETE` | `/authors/:id`, `/books/:id` | `204` or `404` |
 | `GET` | `/authors/:id/books` | `200` with the author's books, or `404` |
 
-Unknown fields in a body are dropped.
+Unknown fields in a body are dropped. While the database is unreachable, routes that need it answer
+`503 {error: "database unavailable"}`; the api keeps running and recovers when the database returns.
 
 ## Usage
 
@@ -86,8 +88,8 @@ npm run ui:build       # writes ui/dist; rebuild the loadgen image to ship it
 | Method | Path | Answers |
 |---|---|---|
 | `GET` | `/` | the UI |
-| `POST` | `/run` closed `{op, requests, concurrency}` (`mode` omitted or `"closed"`) or open `{mode: "open", op, rps, durationSec, maxInFlight?}` (rps 1..5000, durationSec 1..300, maxInFlight 1..20000, default 10000) | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs, window}` (open adds `dropped`, `targetRps`; `inFlight` is observed), where `window` is `{reqs, rps, p50, p99, errors}` for requests finished since the previous `progress` (p50/p99 `null` when empty; errors = network failures and 4xx/5xx), then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms; open adds `dropped`, `targetRps`, `maxInFlightSeen`, and `rps` is the achieved rate); a request that would exceed `maxInFlight` is dropped, not started; `409` while a run is active |
-| `GET` | `/status` | `{containers: [{service, up, cpuCores, cpuQuotaCores, nrThrottled, memBytes, memMaxBytes}]}` for api, db, loadgen; each service reads its own cgroup, no runtime socket |
+| `POST` | `/run` closed `{op, requests, concurrency}` (`mode` omitted or `"closed"`) or open `{mode: "open", op, rps, durationSec, maxInFlight?}` (rps 1..5000, durationSec 1..300, maxInFlight 1..20000, default 10000) | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs, window}` (open adds `dropped`, `targetRps`; `inFlight` is observed), where `window` is `{reqs, rps, p50, p99, errors}` for requests finished since the previous `progress` (p50/p99 `null` when empty; errors = network failures and 4xx/5xx), then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms; open adds `dropped`, `targetRps`, `maxInFlightSeen`, and `rps` is the achieved rate); a request that would exceed `maxInFlight` is dropped, not started; seeding gives each call 5 s, and a failure ends the stream with one `error` event `seed failed: ...`; `409` while a run is active |
+| `GET` | `/status` | `{containers: [{service, state, up, reason, cpuCores, cpuQuotaCores, nrThrottled, memBytes, memMaxBytes}]}` for api, db, loadgen; each service reads its own cgroup, no runtime socket. `state` is `up`, `slow` or `down` (`up` is `state !== "down"`, `reason` one sentence or null): the api is `slow` when its 3 s probe of `/health` and `/stats` times out within 30 s of the last success, `down` on connection refused, a hostname that does not resolve within 1 s, an HTTP error, or timeouts for 30 s; the db is `down` when `/health` says 503 or the api is down, `slow` while the api is slow. The api answers `/health` and `/stats` from a one-connection admin pool, so a saturated traffic pool does not delay them. The db row adds `connUsed, connMax, activeBackends, waitingBackends, poolBusy, poolMax, poolWaiting` and per-second `commitsPerSec, rowsPerSec, cacheHitRatio` (null on the first sample or a counter reset) |
 | `POST` | `/reset` | `{deleted: n}` authors removed; `409` while a run is active |
 
 ## Four examples

@@ -1,18 +1,21 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
 import pg from "pg";
 import { buildApp } from "./app.ts";
 import { createStore } from "./db.ts";
 
 // Live tier: runs against the real Postgres from compose, nothing faked.
 process.env.LOG_LEVEL = "silent";
+// Two pools as in server.ts: traffic, and a one-connection admin pool.
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const app = buildApp(createStore(pool));
+const adminPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+const app = buildApp(createStore(pool, adminPool));
 
 before(() => app.ready());
 after(async () => {
   await app.close();
-  await pool.end();
+  await Promise.all([pool.end(), adminPool.end()]);
 });
 
 const json = (r: { body: string }) => JSON.parse(r.body);
@@ -33,6 +36,45 @@ test("stats reports this container's cgroup cpu and memory", async () => {
   assert.ok(Number.isInteger(s.cpuUsageUsec) && s.cpuUsageUsec > 0, String(s.cpuUsageUsec));
   assert.ok(Number.isInteger(s.memCurrentBytes) && s.memCurrentBytes > 0, String(s.memCurrentBytes));
   assert.ok(Math.abs(s.sampledAtMs - Date.now()) < 5000);
+});
+
+test("stats adds postgres load counters and the pg pool", async () => {
+  const s = json(await app.inject({ method: "GET", url: "/stats" }));
+  assert.ok(Number.isInteger(s.db.maxConnections) && s.db.maxConnections >= 1, String(s.db.maxConnections));
+  assert.ok(s.db.clientBackends >= 1, String(s.db.clientBackends));
+  assert.equal(typeof s.db.xactCommit, "number");
+  assert.equal(typeof s.db.blksHit, "number");
+  assert.ok(Math.abs(s.db.sampledAtMs - Date.now()) < 5000);
+  assert.equal(s.pool.max, 10);
+  assert.deepEqual(Object.keys(s.pool).toSorted(), ["idle", "max", "total", "waiting"]);
+});
+
+test("stats still answers 200 with db null when the load query fails", async () => {
+  const broken = buildApp({ ...createStore(pool, adminPool), dbLoad: () => Promise.reject(new Error("down")) });
+  const r = await broken.inject({ method: "GET", url: "/stats" });
+  await broken.close();
+  assert.equal(r.statusCode, 200);
+  assert.equal(json(r).db, null);
+  assert.ok(json(r).cpuUsageUsec > 0);
+  assert.equal(json(r).pool.max, 10);
+});
+
+const within = <T>(ms: number, p: Promise<T>) =>
+  Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(`no answer within ${ms} ms`)))]);
+
+test("health and stats answer within 500 ms while the traffic pool is fully checked out", async () => {
+  const max = pool.options.max;
+  const held = await Promise.all(Array.from({ length: max }, () => pool.connect()));
+  try {
+    const health = await within(500, app.inject({ method: "GET", url: "/health" }));
+    assert.equal(health.statusCode, 200);
+    assert.deepEqual(json(health), { status: "ok" });
+    const stats = json(await within(500, app.inject({ method: "GET", url: "/stats" })));
+    assert.equal(typeof stats.db.xactCommit, "number");
+    assert.deepEqual(stats.pool, { max, total: max, idle: 0, waiting: 0 });
+  } finally {
+    held.forEach((c) => c.release());
+  }
 });
 
 test("author lifecycle: create, read, update, delete", async () => {
@@ -146,4 +188,30 @@ test("list authors filters by exact name, ordered by id, default limit 100", asy
     assert.equal((await get(qs)).statusCode, 400, qs);
   }
   await Promise.all([...ids, other].map((id) => app.inject({ method: "DELETE", url: `/authors/${id}` })));
+});
+
+test("with the database unreachable: health 503, stats 200 with db null, writes 503", async () => {
+  // Port 1 on loopback: nothing listens, so every connect is refused.
+  const dead = "postgres://app:app@127.0.0.1:1/app";
+  const deadPool = new pg.Pool({ connectionString: dead });
+  const deadAdmin = new pg.Pool({ connectionString: dead, max: 1 });
+  const down = buildApp(createStore(deadPool, deadAdmin));
+  try {
+    const health = await down.inject({ method: "GET", url: "/health" });
+    assert.deepEqual([health.statusCode, json(health)], [503, { status: "db unreachable" }]);
+    const stats = await down.inject({ method: "GET", url: "/stats" });
+    assert.deepEqual([stats.statusCode, json(stats).db], [200, null]);
+    const write = await down.inject({ method: "POST", url: "/authors", payload: { name: "x" } });
+    assert.deepEqual([write.statusCode, json(write)], [503, { error: "database unavailable" }]);
+    const read = await down.inject({ method: "GET", url: "/authors/1" });
+    assert.deepEqual([read.statusCode, json(read)], [503, { error: "database unavailable" }]);
+  } finally {
+    await down.close();
+    await Promise.all([deadPool.end(), deadAdmin.end()]);
+  }
+});
+
+test("the process is still serving after the unreachable-database test", async () => {
+  const r = await app.inject({ method: "GET", url: "/health" });
+  assert.deepEqual([r.statusCode, json(r)], [200, { status: "ok" }]);
 });
