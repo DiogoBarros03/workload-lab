@@ -2,8 +2,8 @@ import { useRef, useState } from "react";
 import baselineJson from "../../../../results/000-baseline.json";
 import { AboutSection } from "@/components/AboutSection";
 import { ContainersCard } from "@/components/ContainersCard";
-import { FindingsList } from "@/components/FindingsList";
 import { HistoryTable } from "@/components/HistoryTable";
+import { LearningSection } from "@/components/LearningSection";
 import { LiveCard } from "@/components/LiveCard";
 import { MeasuredCard } from "@/components/MeasuredCard";
 import { ProjectHeader } from "@/components/ProjectHeader";
@@ -13,6 +13,7 @@ import { useHistory } from "@/hooks/use-history";
 import { useRun } from "@/hooks/use-run";
 import type { StatusState } from "@/hooks/use-status";
 import { parseBaseline, runPresetFrom, type Run } from "@/lib/baseline";
+import { LEARNING } from "@/lib/learning";
 import type { Project } from "@/lib/projects";
 import { INITIAL_FORM, type RunForm } from "@/lib/run";
 import { runWarning } from "@/lib/status";
@@ -37,7 +38,7 @@ export function BaselinePage({ project, status }: { project: Project; status: St
       <ProjectHeader project={project} />
       <AboutSection />
       <MeasuredCard baseline={BASELINE} running={running} onRun={runThis} />
-      <FindingsList findings={BASELINE.findings} />
+      <LearningSection learning={LEARNING[project.id]} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5 lg:gap-6">
         <RunCard
           form={form} onForm={setForm} runRef={runButton}
