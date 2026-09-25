@@ -13,7 +13,7 @@ function reading(used: number | null, limit: number | null, fmt: (v: number) => 
 export function Gauge({ label, used, limit, fmt, tag }: Props) {
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex justify-between gap-2 text-sm">
+      <div className="flex justify-between gap-2 text-meta">
         <span className="flex items-center gap-2 text-muted-foreground">{label}{tag}</span>
         <span className="font-mono text-ink-soft">{reading(used, limit, fmt)}</span>
       </div>

@@ -11,8 +11,8 @@ export function ContainersCard({ status, className }: { status: StatusState; cla
         <CardTitle>Containers</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        {status.error && <p className="rounded-md bg-red-bg px-3 py-2 text-sm text-red-fg">Status unavailable: {status.error}</p>}
-        {status.containers === null && !status.error && <p className="text-sm text-muted-foreground">Loading status.</p>}
+        {status.error && <p className="rounded-md bg-red-bg px-3 py-2 text-meta text-red-fg">Status unavailable: {status.error}</p>}
+        {status.containers === null && !status.error && <p className="text-meta text-muted-foreground">Loading status.</p>}
         {status.containers && (
           <ul className="divide-y divide-border">
             {status.containers.map((c) => <ContainerRow key={c.service} c={c} />)}

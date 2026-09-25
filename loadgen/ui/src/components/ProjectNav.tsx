@@ -6,12 +6,12 @@ const ITEM = "flex items-baseline gap-3 rounded-md border px-3 py-2.5 outline-no
 function Body({ p }: { p: Project }) {
   return (
     <>
-      <span className="font-mono text-sm">{p.id}</span>
+      <span className="font-mono text-meta">{p.id}</span>
       <span className="flex min-w-0 flex-col">
-        <span className="text-sm">{p.title}</span>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-meta">{p.title}</span>
+        <span className="text-label text-muted-foreground">
           {p.chapter}
-          {p.status === "upcoming" && <span className="ml-2 text-[10px] uppercase tracking-[0.05em]">upcoming</span>}
+          {p.status === "upcoming" && <span className="ml-2 uppercase tracking-[0.05em]">upcoming</span>}
         </span>
       </span>
     </>

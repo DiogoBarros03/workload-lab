@@ -24,7 +24,7 @@ export function MobileBar({ active, view }: { active: Project; view: StatusView 
         <SheetContent side="left" className="w-[280px] gap-6 overflow-y-auto px-4 py-6">
           <div className="px-3">
             <SheetTitle className="font-serif text-3xl font-normal text-ink">Load lab</SheetTitle>
-            <SheetDescription className="mt-1">One API, one database, real limits.</SheetDescription>
+            <SheetDescription className="mt-1 text-meta">One API, one database, real limits.</SheetDescription>
           </div>
           <ProjectNav active={active} onNavigate={() => setOpen(false)} />
           <div className="mt-auto px-3"><StatusPills view={view} /></div>

@@ -14,7 +14,7 @@ function Counters({ p, config }: { p: Progress | null; config: RunConfig }) {
     <div className="flex flex-col gap-2">
       <ProgressBar fraction={p ? progressFraction(p.elapsedMs, config.durationSec) : 0} failing={errors > 0} />
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-sm text-muted-foreground">
+        <p className="font-mono text-meta text-muted-foreground">
           {p
             ? `${fmtSec(p.elapsedMs)} / ${config.durationSec} s · in flight ${fmtInt(p.inFlight)} · dropped ${fmtInt(p.dropped)}`
             : "Preparing the run."}

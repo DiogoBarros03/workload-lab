@@ -18,7 +18,7 @@ export function RunThisButton({ label, killedApi, disabled, onRun }: Props) {
         <Play weight="bold" />Run this
       </Button>
       {warned && (
-        <p role="status" className="max-w-[14rem] text-xs whitespace-normal text-red-fg">
+        <p role="status" className="max-w-[14rem] text-meta whitespace-normal text-red-fg">
           This run killed the api last time; it restarts on its own now.
         </p>
       )}

@@ -22,10 +22,10 @@ export function DbLoadPanel({ c }: { c: Container }) {
         <Gauge label="Connections" used={d.connUsed} limit={d.connMax} fmt={fmtInt} />
         <Gauge label="API pool" used={d.poolBusy} limit={d.poolMax} fmt={fmtInt} tag={<Waiting count={d.poolWaiting} />} />
       </div>
-      <p className="font-mono text-sm text-ink-soft">
+      <p className="font-mono text-meta text-ink-soft">
         commits/s {n(d.commitsPerSec)} · rows/s {n(d.rowsPerSec)} · cache hit {pct(d.cacheHitRatio)}
       </p>
-      <p className="font-mono text-xs text-muted-foreground">
+      <p className="font-mono text-meta text-muted-foreground">
         active {n(d.activeBackends)} · waiting {n(d.waitingBackends)}
       </p>
     </div>

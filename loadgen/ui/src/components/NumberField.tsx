@@ -20,8 +20,8 @@ export function NumberField({ id, label, value, max, disabled, onChange, unit, s
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
-        <Label htmlFor={id} className="text-sm font-normal text-muted-foreground">{label}</Label>
-        <span id={`${id}-range`} className="font-mono text-xs text-muted-foreground">1 – {fmtInt(max)}{unit && ` ${unit}`}</span>
+        <Label htmlFor={id} className="text-meta font-normal text-muted-foreground">{label}</Label>
+        <span id={`${id}-range`} className="font-mono text-meta text-muted-foreground">1 – {fmtInt(max)}{unit && ` ${unit}`}</span>
       </div>
       <Input
         id={id} type="number" inputMode="numeric" min={1} max={max} step={1} required

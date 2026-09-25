@@ -12,7 +12,7 @@ function Tip({ active, payload }: TipProps) {
   if (!p) return null;
   const rows = [["t", `${p.t.toFixed(1)} s`], ["rps", fmtInt(p.rps)], ["target", fmtInt(p.target)], ["p99", `${fmtMs(p.p99)} ms`], ["errors", fmtInt(p.errors)]];
   return (
-    <dl className="grid grid-cols-[auto_auto] gap-x-3 rounded-md border bg-card px-3 py-2 font-mono text-xs text-ink-soft">
+    <dl className="grid grid-cols-[auto_auto] gap-x-3 rounded-md border bg-card px-3 py-2 font-mono text-label text-ink-soft">
       {rows.map(([k, v]) => <div key={k} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right">{v}</dd></div>)}
     </dl>
   );
@@ -20,7 +20,7 @@ function Tip({ active, payload }: TipProps) {
 
 function Legend() {
   return (
-    <figcaption className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
+    <figcaption className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-label text-muted-foreground">
       <Key swatch={lineSwatch("var(--chart-rps)")}>req/s achieved</Key>
       <Key swatch={lineSwatch("var(--chart-ref)", true)}>req/s target</Key>
       <Key swatch={lineSwatch("var(--chart-p99)")}>p99 ms, right axis</Key>
@@ -40,7 +40,7 @@ export function LiveChart({ series, target, durationSec }: Props) {
   const right = niceTicks(Math.max(0, ...data.map((p) => p.p99 ?? 0)));
   return (
     <figure className="flex flex-col gap-3" aria-label={`Achieved and target requests per second, and p99 latency, over ${data.length} half-second windows`}>
-      <div aria-hidden className="-mb-2 flex justify-between font-mono text-xs">
+      <div aria-hidden className="-mb-2 flex justify-between font-mono text-label">
         <span className="text-muted-foreground">req/s</span>
         <span style={{ color: "var(--chart-p99)" }}>p99 ms</span>
       </div>

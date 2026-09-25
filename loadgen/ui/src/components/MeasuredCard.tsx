@@ -20,8 +20,8 @@ function Row({ run, running, onRun }: { run: Run; running: boolean; onRun: (r: R
       <TableCell className="px-1.5">{run.op}</TableCell>
       {nums.map((n, i) => <TableCell key={COLS[i + 1]} className={NUM}>{n}</TableCell>)}
       <TableCell className="px-1.5"><Tag tone={verdictTone(run.verdict)}>{run.verdict}</Tag></TableCell>
-      <TableCell className="min-w-[11rem] px-1.5 text-xs whitespace-normal">
-        {killed && <Tag tone="red" className="mr-1.5 text-[10px] normal-case">OOM-killed</Tag>}
+      <TableCell className="min-w-[11rem] px-1.5 whitespace-normal">
+        {killed && <Tag tone="red" className="mr-1.5 normal-case">OOM-killed</Tag>}
         {run.cause}
       </TableCell>
       <TableCell>
@@ -36,7 +36,7 @@ export function MeasuredCard({ baseline: { measuredAt, setup, runs }, running, o
     <Card>
       <CardHeader>
         <CardTitle>Measured</CardTitle>
-        <p className="font-mono text-xs text-muted-foreground">
+        <p className="font-mono text-meta text-muted-foreground">
           measured {measuredAt} · {setup.durationSec} s per run · api {setup.apiCpu} CPU / {setup.apiMemMiB} MiB / pool {setup.poolMax}
         </p>
       </CardHeader>

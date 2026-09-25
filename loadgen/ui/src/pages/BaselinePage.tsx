@@ -34,10 +34,7 @@ export function BaselinePage({ project, status }: { project: Project; status: St
   };
   return (
     <>
-      <ProjectHeader project={project}>
-        One Fastify container (0.5 CPU, 128 MiB) and one Postgres container. Requests arrive at a fixed rate whether
-        or not earlier ones finished; in-flight is what the system could not keep up with.
-      </ProjectHeader>
+      <ProjectHeader project={project} />
       <AboutSection />
       <MeasuredCard baseline={BASELINE} running={running} onRun={runThis} />
       <FindingsList findings={BASELINE.findings} />

@@ -13,7 +13,7 @@ export function OpTabs({ value, onChange, disabled }: Props) {
   const hint = OPS.find((o) => o.op === value)?.hint;
   return (
     <div className="flex flex-col gap-2">
-      <span id="op-label" className="text-sm text-muted-foreground">Operation</span>
+      <span id="op-label" className="text-meta text-muted-foreground">Operation</span>
       <Tabs value={value} onValueChange={(v) => onChange(v as Op)}>
         <TabsList aria-labelledby="op-label" className="w-full">
           {OPS.map(({ op }) => (
@@ -21,7 +21,7 @@ export function OpTabs({ value, onChange, disabled }: Props) {
           ))}
         </TabsList>
       </Tabs>
-      <p className="font-mono text-sm text-muted-foreground">{hint}</p>
+      <p className="font-mono text-meta text-muted-foreground">{hint}</p>
     </div>
   );
 }

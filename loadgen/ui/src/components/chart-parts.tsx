@@ -1,6 +1,6 @@
 import type { DotItemDotProps } from "recharts";
 
-const TICK = { fill: "var(--ink-muted)", fontSize: 11, fontFamily: "var(--font-mono)" };
+const TICK = { fill: "var(--ink-muted)", fontSize: 13, fontFamily: "var(--font-mono)" };
 
 // Shared axis look: mono ticks, no axis line, short tick marks.
 export const AXIS = { tick: TICK, tickLine: { stroke: "var(--line)" }, axisLine: false, tickSize: 4 } as const;
@@ -22,7 +22,7 @@ export const orBlank = <T,>(data: T[]) => (data.length > 0 ? data : [{ t: 0 }]);
 export function Waiting({ show }: { show: boolean }) {
   if (!show) return null;
   return (
-    <p className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-xs text-muted-foreground">
+    <p className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-label text-muted-foreground">
       waiting for data
     </p>
   );

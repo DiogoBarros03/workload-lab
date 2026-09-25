@@ -14,7 +14,7 @@ export function CpuChart({ samples }: { samples: CpuSample[] }) {
   const top = quota ?? (niceTicks(Math.max(0, ...data.map((p) => p.cores))).at(-1) as number);
   return (
     <figure className="flex flex-col gap-2" aria-label={last ? `api CPU over the last 60 s, now ${last.cores.toFixed(2)} cores` : "api CPU, no samples yet"}>
-      <figcaption className="flex justify-between text-sm text-muted-foreground">
+      <figcaption className="flex justify-between text-meta text-muted-foreground">
         <span>api CPU, last 60 s</span>
         <span className="font-mono text-ink-soft">{last ? `${last.cores.toFixed(2)} cores` : "–"}</span>
       </figcaption>

@@ -160,6 +160,19 @@
   --color-green-fg: var(--green-fg);
   --color-yellow-bg: var(--yellow-bg);
   --color-yellow-fg: var(--yellow-fg);
+  /* Type scale: body 16, secondary 15, labels and badges 13, titles 24, question 28/36 */
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+  --text-meta: 0.9375rem;
+  --text-meta--line-height: 1.5;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.4;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.1;
+  --text-question-sm: 1.75rem;
+  --text-question-sm--line-height: 1.1;
+  --text-question: 2.25rem;
+  --text-question--line-height: 1.1;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: var(--radius);
@@ -171,8 +184,7 @@
     @apply border-border;
   }
   body {
-    @apply bg-background font-sans text-ink-soft antialiased;
-    line-height: 1.6;
+    @apply bg-background font-sans text-body text-ink-soft antialiased;
   }
   .font-serif {
     letter-spacing: -0.02em;

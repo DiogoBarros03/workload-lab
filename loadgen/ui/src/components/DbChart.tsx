@@ -12,9 +12,9 @@ export function DbChart({ samples }: { samples: DbSample[] }) {
   const last = samples.at(-1);
   return (
     <figure className="flex flex-col gap-2" aria-label={last ? `db over the last 60 s, ${last.poolWaiting ?? "unknown"} waiting for the pool` : "db, no samples yet"}>
-      <figcaption className="flex flex-wrap justify-between gap-2 text-sm text-muted-foreground">
+      <figcaption className="flex flex-wrap justify-between gap-2 text-meta text-muted-foreground">
         <span>db, last 60 s</span>
-        <span className="flex gap-4 font-mono text-xs">
+        <span className="flex gap-4 font-mono text-label">
           <Key swatch={lineSwatch("var(--chart-rps)")}>pool waiting</Key>
           <Key swatch={lineSwatch("var(--chart-commits)")}>commits/s</Key>
         </span>

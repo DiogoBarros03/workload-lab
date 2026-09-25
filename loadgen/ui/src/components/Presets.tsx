@@ -13,7 +13,7 @@ const PRESETS: Preset[] = [
 export function Presets({ disabled, onPick }: { disabled: boolean; onPick: (p: Preset) => void }) {
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm text-muted-foreground">Presets</span>
+      <span className="text-meta text-muted-foreground">Presets</span>
       <div className="flex flex-wrap gap-2">
         {PRESETS.map((p) => (
           <Button key={p.rps} type="button" variant="outline" disabled={disabled} className="font-mono" onClick={() => onPick(p)}>

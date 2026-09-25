@@ -40,7 +40,7 @@ export function RunCard({ form, onForm, runRef, running, warning, onRun, onStop,
           />
           <Presets disabled={running} onPick={pick} />
           <RunActions runRef={runRef} running={running} valid={valid} resetBusy={reset.busy} onStop={onStop} onReset={reset.reset} />
-          {warning && <p className="text-sm text-red-fg">{warning}</p>}
+          {warning && <p className="text-meta text-red-fg">{warning}</p>}
           <Notice error={reset.error} note={reset.note} />
         </form>
       </CardContent>

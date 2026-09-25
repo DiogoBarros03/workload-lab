@@ -15,14 +15,14 @@ function Throughput({ r }: { r: Result }) {
       <Stat size="lg" label="duration" value={fmtSec(r.durationMs)} />
       <Stat label="requests" value={fmtInt(r.requests)} />
       <Stat label="dropped" value={fmtInt(r.dropped)} />
-      <Stat label="max in flight (Little's law: rps × latency)" value={fmtInt(r.maxInFlightSeen)} />
+      <Stat label="max in flight" value={fmtInt(r.maxInFlightSeen)} />
     </div>
   );
 }
 
 function Failed({ r }: { r: Result }) {
   const text = errorSummary(r);
-  return text && <p className="font-mono text-sm text-red-fg">{text}</p>;
+  return text && <p className="font-mono text-meta text-red-fg">{text}</p>;
 }
 
 export function ResultCard({ result, className }: { result: Result | null; className?: string }) {
