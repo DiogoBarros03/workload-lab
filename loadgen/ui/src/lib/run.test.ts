@@ -1,10 +1,13 @@
 import { expect, test } from "vitest";
-import { initialRun, runReducer, type Progress, type Result, type RunState } from "./run";
+import { initialRun, progressFraction, runReducer, type Progress, type Result, type RunState } from "./run";
 
-const config = { op: "read" as const, requests: 1000, concurrency: 10 };
-const result: Result = { requests: 1000, durationMs: 1000, rps: 1000, errors: 0, statusCounts: { "200": 1000 }, latency: null };
+const config = { mode: "open" as const, op: "read" as const, rps: 100, durationSec: 30 };
+const result: Result = {
+  requests: 3000, durationMs: 30000, rps: 98, dropped: 60, targetRps: 100, maxInFlightSeen: 12,
+  errors: 0, statusCounts: { "200": 3000 }, latency: null,
+};
 const progress = (done: number, withWindow = true): Progress => ({
-  done, inFlight: 10, elapsedMs: done,
+  done, inFlight: 10, elapsedMs: done, dropped: 3, targetRps: 100,
   ...(withWindow ? { window: { reqs: 5, rps: done * 2, p50: 1, p99: done / 10, errors: 0 } } : {}),
 });
 const running = (): RunState => runReducer(initialRun, { type: "start", config });
@@ -15,10 +18,13 @@ test("start clears the previous run and records the config", () => {
   expect(s).toEqual({ phase: "running", config, progress: null, series: [], result: null, message: null });
 });
 
-test("progress stores the counters and appends one point per window", () => {
+test("progress stores the counters, dropped and target, and appends one point per window", () => {
   const s = runReducer(runReducer(running(), { type: "progress", progress: progress(100) }), { type: "progress", progress: progress(200) });
-  expect(s.progress?.done).toBe(200);
-  expect(s.series).toEqual([{ elapsedMs: 100, rps: 200, p99: 10 }, { elapsedMs: 200, rps: 400, p99: 20 }]);
+  expect(s.progress).toMatchObject({ done: 200, dropped: 3, targetRps: 100 });
+  expect(s.series).toEqual([
+    { elapsedMs: 100, rps: 200, targetRps: 100, p99: 10 },
+    { elapsedMs: 200, rps: 400, targetRps: 100, p99: 20 },
+  ]);
 });
 
 test("progress without a window updates counters but adds no point", () => {
@@ -39,13 +45,13 @@ test("series is capped at 600 points, keeping the newest, without mutating", () 
   expect(before.at(-1)?.elapsedMs).toBe(605);
 });
 
-test("result ends the run and keeps the series", () => {
+test("result ends the run, keeps the series and carries the open-model fields", () => {
   const withPoint = runReducer(running(), { type: "progress", progress: progress(10) });
   const s = runReducer(withPoint, { type: "result", result });
   expect(s.phase).toBe("done");
-  expect(s.result).toEqual(result);
+  expect(s.result).toMatchObject({ dropped: 60, targetRps: 100, maxInFlightSeen: 12, rps: 98 });
   expect(s.series).toHaveLength(1);
-  expect(s.progress?.inFlight).toBe(0);
+  expect(s.progress).toMatchObject({ inFlight: 0, dropped: 3 });
 });
 
 test("error ends the run with its message and nothing in flight", () => {
@@ -69,4 +75,12 @@ test("events arriving after the run ended are ignored", () => {
   expect(runReducer(stopped, { type: "progress", progress: progress(1) })).toBe(stopped);
   expect(runReducer(stopped, { type: "result", result })).toBe(stopped);
   expect(runReducer(stopped, { type: "error", message: "x" })).toBe(stopped);
+});
+
+test("progressFraction is elapsed over duration, clamped to 0..1", () => {
+  expect(progressFraction(0, 30)).toBe(0);
+  expect(progressFraction(7500, 30)).toBe(0.25);
+  expect(progressFraction(30000, 30)).toBe(1);
+  expect(progressFraction(31200, 30)).toBe(1);
+  expect(progressFraction(-5, 30)).toBe(0);
 });

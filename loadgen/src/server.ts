@@ -2,25 +2,45 @@ import { fileURLToPath } from "node:url";
 import type { ServerResponse } from "node:http";
 import Fastify, { type FastifyBaseLogger } from "fastify";
 import fastifyStatic from "@fastify/static";
-import { ensureSeed, reset, run, type Op } from "./runner.ts";
+import { ensureSeed, reset, run, type Load, type Op } from "./runner.ts";
 import { readCgroup, type Cgroup } from "./cgroup.ts";
 import { buildStatus, type Prev } from "./status.ts";
 
 // Built by `npm run ui:build`; the Dockerfile copies it in.
 const uiRoot = fileURLToPath(new URL("../ui/dist", import.meta.url));
 
+const op = { type: "string", enum: ["read", "write", "mixed"] } as const;
+
+// Absent mode means closed, so pre-open-model clients keep working.
 const runBody = {
   type: "object",
-  required: ["op", "requests", "concurrency"],
-  additionalProperties: false,
-  properties: {
-    op: { type: "string", enum: ["read", "write", "mixed"] },
-    requests: { type: "integer", minimum: 1, maximum: 200000 },
-    concurrency: { type: "integer", minimum: 1, maximum: 5000 },
+  required: ["op"],
+  properties: { mode: { enum: ["closed", "open"] }, op },
+  if: { required: ["mode"], properties: { mode: { const: "open" } } },
+  then: {
+    required: ["rps", "durationSec"],
+    additionalProperties: false,
+    properties: {
+      mode: true,
+      op: true,
+      rps: { type: "integer", minimum: 1, maximum: 5000 },
+      durationSec: { type: "integer", minimum: 1, maximum: 300 },
+      maxInFlight: { type: "integer", minimum: 1, maximum: 20000 },
+    },
+  },
+  else: {
+    required: ["requests", "concurrency"],
+    additionalProperties: false,
+    properties: {
+      mode: true,
+      op: true,
+      requests: { type: "integer", minimum: 1, maximum: 200000 },
+      concurrency: { type: "integer", minimum: 1, maximum: 5000 },
+    },
   },
 } as const;
 
-type RunReq = { Body: { op: Op; requests: number; concurrency: number } };
+type RunReq = { Body: Load & { op: Op } };
 
 const send = (raw: ServerResponse, event: string, data: unknown) =>
   raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);

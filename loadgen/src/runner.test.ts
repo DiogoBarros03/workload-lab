@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
-import { ensureSeed, reset, run, runPool, type Seed } from "./runner.ts";
+import { ensureSeed, reset, run, runPool, runRate, type Seed } from "./runner.ts";
 
 // Live tier: fires real requests at the API from compose, nothing faked.
 const baseUrl = process.env.BASE_URL;
@@ -69,6 +69,50 @@ test("runPool stops starting tasks once aborted", async () => {
   const finished = await pool.done;
   assert.equal(pool.state.started, 5);
   assert.equal(finished.length, 5);
+});
+
+const TICK_MS = 10;
+
+test("runRate at 200/s for 1 s starts about 200 requests, none early", async () => {
+  const t0 = performance.now();
+  const starts: number[] = [];
+  const task = async (i: number) => {
+    starts[i] = performance.now() - t0;
+    await sleep(5);
+    return i;
+  };
+  const { counts, done } = runRate({ rps: 200, durationSec: 1, maxInFlight: 10000 }, task, never());
+  const results = await done;
+  assert.ok(counts.started >= 190 && counts.started <= 210, String(counts.started));
+  assert.equal(results.length, counts.started);
+  assert.equal(counts.dropped, 0);
+  const early = starts.filter((ms, i) => ms < (i * 1000) / 200 - TICK_MS);
+  assert.deepEqual(early, []);
+});
+
+test("runRate drops requests that would exceed maxInFlight", async () => {
+  const gates: (() => void)[] = [];
+  const task = (i: number) => new Promise<number>((resolve) => gates.push(() => resolve(i)));
+  const { counts, done } = runRate({ rps: 50, durationSec: 1, maxInFlight: 5 }, task, never());
+  await sleep(1100);
+  assert.equal(counts.started, 5);
+  assert.equal(counts.dropped, 45);
+  assert.equal(counts.maxInFlightSeen, 5);
+  gates.splice(0).forEach((open) => open());
+  assert.deepEqual(await done, [0, 1, 2, 3, 4]);
+  assert.equal(counts.inFlight, 0);
+});
+
+test("runRate stops scheduling once aborted and resolves without waiting out the duration", async () => {
+  const ctl = new AbortController();
+  const { counts, done } = runRate({ rps: 100, durationSec: 10, maxInFlight: 10000 }, async (i) => i, ctl.signal);
+  await sleep(200);
+  ctl.abort();
+  const atAbort = counts.started;
+  await sleep(100);
+  assert.equal(counts.started, atAbort);
+  assert.ok(atAbort > 5 && atAbort < 40, String(atAbort));
+  assert.equal((await done).length, atAbort);
 });
 
 test("seeding leaves exactly 20 seed authors and 200 books, writes do not grow it", async () => {

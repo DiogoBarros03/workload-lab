@@ -86,7 +86,7 @@ npm run ui:build       # writes ui/dist; rebuild the loadgen image to ship it
 | Method | Path | Answers |
 |---|---|---|
 | `GET` | `/` | the UI |
-| `POST` | `/run` `{op, requests, concurrency}` | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs, window}`, where `window` is `{reqs, rps, p50, p99, errors}` for requests finished since the previous `progress` (p50/p99 `null` when empty; errors = network failures and 4xx/5xx), then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms); `409` while a run is active |
+| `POST` | `/run` closed `{op, requests, concurrency}` (`mode` omitted or `"closed"`) or open `{mode: "open", op, rps, durationSec, maxInFlight?}` (rps 1..5000, durationSec 1..300, maxInFlight 1..20000, default 10000) | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs, window}` (open adds `dropped`, `targetRps`; `inFlight` is observed), where `window` is `{reqs, rps, p50, p99, errors}` for requests finished since the previous `progress` (p50/p99 `null` when empty; errors = network failures and 4xx/5xx), then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms; open adds `dropped`, `targetRps`, `maxInFlightSeen`, and `rps` is the achieved rate); a request that would exceed `maxInFlight` is dropped, not started; `409` while a run is active |
 | `GET` | `/status` | `{containers: [{service, up, cpuCores, cpuQuotaCores, nrThrottled, memBytes, memMaxBytes}]}` for api, db, loadgen; each service reads its own cgroup, no runtime socket |
 | `POST` | `/reset` | `{deleted: n}` authors removed; `409` while a run is active |
 

@@ -47,6 +47,26 @@ test("POST /run rejects bodies outside the schema", async () => {
   assert.deepEqual(codes, bad.map(() => 400));
 });
 
+test("POST /run validates open-mode bodies and still accepts closed bodies without mode", async () => {
+  const bad = [
+    { mode: "open", op: "read", rps: 10 },
+    { mode: "open", op: "read", rps: 0, durationSec: 1 },
+    { mode: "open", op: "read", rps: 5001, durationSec: 1 },
+    { mode: "open", op: "read", rps: 10, durationSec: 301 },
+    { mode: "open", op: "read", rps: 10, durationSec: 1, maxInFlight: 0 },
+    { mode: "open", op: "read", requests: 10, concurrency: 1 },
+    { mode: "closed", op: "read", rps: 10, durationSec: 1 },
+    { mode: "sideways", op: "read", requests: 10, concurrency: 1 },
+  ];
+  const codes = await Promise.all(bad.map(async (b) => (await runWith(b)).statusCode));
+  assert.deepEqual(codes, bad.map(() => 400));
+  const ok = [
+    { op: "read", requests: 1, concurrency: 1 },
+    { mode: "closed", op: "read", requests: 1, concurrency: 1 },
+  ];
+  for (const b of ok) assert.equal((await runWith(b)).statusCode, 200);
+});
+
 test("POST /run reports a target failure as an error event", async () => {
   const res = await runWith({ op: "read", requests: 1, concurrency: 1 });
   assert.equal(res.statusCode, 200);
@@ -77,6 +97,21 @@ test("every progress event carries a window with the five stats", async () => {
     assert.deepEqual(Object.keys(p.data.window).toSorted(), ["errors", "p50", "p99", "reqs", "rps"]);
   }
   assert.equal(progress.reduce((n, p) => n + p.data.window.reqs, 0), 50);
+});
+
+test("an open run at 50/s for 2 s holds the rate and reports it", async () => {
+  const payload = { mode: "open", op: "read", rps: 50, durationSec: 2 };
+  const res = await live.inject({ method: "POST", url: "/run", payload });
+  const seen = events(res.body);
+  const result = seen.at(-1);
+  assert.equal(result?.event, "result", res.body);
+  assert.ok(result.data.requests >= 90 && result.data.requests <= 110, String(result.data.requests));
+  assert.equal(result.data.dropped, 0);
+  assert.equal(result.data.targetRps, 50);
+  assert.equal(typeof result.data.maxInFlightSeen, "number");
+  const progress = seen.filter((e) => e.event === "progress");
+  assert.ok(progress.length > 0, res.body);
+  assert.ok(progress.every((p) => p.data.targetRps === 50 && p.data.dropped === 0), res.body);
 });
 
 test("one run at a time; closing the stream stops the run and frees the slot", async () => {

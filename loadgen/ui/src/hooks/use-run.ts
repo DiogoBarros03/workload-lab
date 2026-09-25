@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import { initialRun, runReducer, type Progress, type Result, type RunAction, type RunConfig } from "@/lib/run";
 import { parseSse, type SseEvent } from "@/lib/sse";
 
@@ -40,6 +40,8 @@ async function consume(reader: ReadableStreamDefaultReader<string>, dispatch: (a
 export function useRun(onResult: (config: RunConfig, result: Result) => void) {
   const [state, dispatch] = useReducer(runReducer, initialRun);
   const ctl = useRef<AbortController | null>(null);
+  // Leaving the page cancels its run on the server too.
+  useEffect(() => () => ctl.current?.abort(), []);
 
   const start = useCallback(async (config: RunConfig) => {
     const abort = new AbortController();

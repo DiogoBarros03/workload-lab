@@ -4,11 +4,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { fmtInt, fmtMs } from "@/lib/format";
 import type { HistoryEntry } from "@/lib/history";
 
-const COLS = ["time", "op", "requests", "concurrency", "req/s", "p50 ms", "p99 ms", "errors"];
+const COLS = ["time", "op", "target req/s", "duration", "achieved req/s", "p50 ms", "p99 ms", "dropped", "errors"];
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 function Row({ e }: { e: HistoryEntry }) {
-  const cells = [time(e.at), e.op, fmtInt(e.requests), fmtInt(e.concurrency), fmtInt(e.rps), fmtMs(e.p50), fmtMs(e.p99), fmtInt(e.errors)];
+  const cells = [
+    time(e.at), e.op, fmtInt(e.targetRps), `${e.durationSec} s`, fmtInt(e.rps),
+    fmtMs(e.p50), fmtMs(e.p99), fmtInt(e.dropped), fmtInt(e.errors),
+  ];
   return (
     <TableRow>
       {cells.map((c, i) => <TableCell key={COLS[i]} className={i < 2 ? "" : "text-right font-mono"}>{c}</TableCell>)}

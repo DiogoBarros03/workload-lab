@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { ArrowCounterClockwise, Play, Stop } from "@phosphor-icons/react";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useReset } from "@/hooks/use-reset";
 import { validCount } from "@/lib/format";
@@ -8,40 +6,38 @@ import type { Op, RunConfig } from "@/lib/run";
 import { NumberField } from "./NumberField";
 import { Notice } from "./Notice";
 import { OpTabs } from "./OpTabs";
-import { Presets } from "./Presets";
+import { Presets, type Preset } from "./Presets";
+import { RunActions } from "./RunActions";
 
-const MAX_REQUESTS = 200000;
-const MAX_CONCURRENCY = 5000;
+const MAX_RPS = 5000;
+const MAX_DURATION_SEC = 300;
 
 type Props = { running: boolean; runError: string | null; onRun: (c: RunConfig) => void; onStop: () => void; className?: string };
 
 export function RunCard({ running, runError, onRun, onStop, className }: Props) {
   const [op, setOp] = useState<Op>("read");
-  const [requests, setRequests] = useState("1000");
-  const [concurrency, setConcurrency] = useState("10");
+  const [rps, setRps] = useState("100");
+  const [duration, setDuration] = useState("30");
   const reset = useReset();
-  const valid = validCount(requests, MAX_REQUESTS) && validCount(concurrency, MAX_CONCURRENCY);
+  const valid = validCount(rps, MAX_RPS) && validCount(duration, MAX_DURATION_SEC);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (valid && !running) onRun({ op, requests: +requests, concurrency: +concurrency });
+    if (valid && !running) onRun({ mode: "open", op, rps: +rps, durationSec: +duration });
   };
+  const pick = (p: Preset) => { setRps(String(p.rps)); setDuration(String(p.durationSec)); };
   return (
     <Card className={className}>
       <CardHeader><CardTitle>Run</CardTitle></CardHeader>
       <CardContent>
         <form onSubmit={submit} className="flex flex-col gap-6">
           <OpTabs value={op} onChange={setOp} disabled={running} />
-          <NumberField id="requests" label="Requests" value={requests} max={MAX_REQUESTS} disabled={running} onChange={setRequests} />
-          <NumberField id="concurrency" label="Concurrency" value={concurrency} max={MAX_CONCURRENCY} disabled={running} onChange={setConcurrency} />
-          <Presets disabled={running} onPick={(p) => { setRequests(String(p.requests)); setConcurrency(String(p.concurrency)); }} />
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {running
-              ? <Button type="button" className="sm:flex-1" onClick={onStop}><Stop weight="bold" />Stop</Button>
-              : <Button type="submit" className="sm:flex-1" disabled={!valid}><Play weight="bold" />Run</Button>}
-            <Button type="button" variant="outline" disabled={running || reset.busy} onClick={reset.reset}>
-              <ArrowCounterClockwise weight="bold" />Reset data
-            </Button>
-          </div>
+          <NumberField id="rps" label="Requests per second" value={rps} max={MAX_RPS} disabled={running} onChange={setRps} />
+          <NumberField
+            id="duration" label="Duration" unit="s" scale="linear"
+            value={duration} max={MAX_DURATION_SEC} disabled={running} onChange={setDuration}
+          />
+          <Presets disabled={running} onPick={pick} />
+          <RunActions running={running} valid={valid} resetBusy={reset.busy} onStop={onStop} onReset={reset.reset} />
           <Notice error={runError ?? reset.error} note={reset.note} />
         </form>
       </CardContent>

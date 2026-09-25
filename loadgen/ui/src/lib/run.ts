@@ -1,17 +1,28 @@
 export type Op = "read" | "write" | "mixed";
-export type RunConfig = { op: Op; requests: number; concurrency: number };
+// Open model: requests arrive at a fixed rate, finished or not.
+export type RunConfig = { mode: "open"; op: Op; rps: number; durationSec: number };
 export type Window = { reqs: number; rps: number; p50: number | null; p99: number | null; errors: number };
-export type Progress = { done: number; inFlight: number; elapsedMs: number; window?: Window };
+export type Progress = {
+  done: number;
+  inFlight: number;
+  elapsedMs: number;
+  dropped: number;
+  targetRps: number;
+  window?: Window;
+};
 export type Latency = { p50: number; p95: number; p99: number; max: number; mean: number };
 export type Result = {
   requests: number;
   durationMs: number;
   rps: number;
+  dropped: number;
+  targetRps: number;
+  maxInFlightSeen: number;
   statusCounts: Record<string, number>;
   errors: number;
   latency: Latency | null;
 };
-export type Point = { elapsedMs: number; rps: number; p99: number | null };
+export type Point = { elapsedMs: number; rps: number; targetRps: number; p99: number | null };
 
 export type RunState = {
   phase: "idle" | "running" | "done" | "error";
@@ -37,7 +48,7 @@ const settled = (p: Progress | null) => (p ? { ...p, inFlight: 0 } : null);
 
 function appendPoint(series: Point[], p: Progress): Point[] {
   if (!p.window) return series;
-  return [...series, { elapsedMs: p.elapsedMs, rps: p.window.rps, p99: p.window.p99 }].slice(-SERIES_CAP);
+  return [...series, { elapsedMs: p.elapsedMs, rps: p.window.rps, targetRps: p.targetRps, p99: p.window.p99 }].slice(-SERIES_CAP);
 }
 
 function settle(s: RunState, a: Exclude<RunAction, { type: "start" }>): RunState {
@@ -59,3 +70,7 @@ export function runReducer(s: RunState, a: RunAction): RunState {
   if (s.phase !== "running") return s;
   return settle(s, a);
 }
+
+// Open runs end by time, so progress is elapsed over duration.
+export const progressFraction = (elapsedMs: number, durationSec: number) =>
+  Math.min(1, Math.max(0, elapsedMs / (durationSec * 1000)));
