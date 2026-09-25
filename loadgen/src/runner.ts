@@ -1,9 +1,9 @@
 import { randomInt } from "node:crypto";
-import { summarize, type Sample, type Stats } from "./stats.ts";
+import { summarize, windowOf, type Sample, type Stats, type Window } from "./stats.ts";
 
 export type Op = "read" | "write" | "mixed";
 export type Seed = { sinkIds: readonly number[]; bookIds: readonly number[] };
-export type Progress = { done: number; inFlight: number; elapsedMs: number };
+export type Progress = { done: number; inFlight: number; elapsedMs: number; window: Window };
 export type RunOptions = {
   baseUrl: string;
   seed: Seed;
@@ -142,19 +142,35 @@ export async function runPool<T>(
   return (await Promise.all(Array.from({ length: Math.min(concurrency, total) }, worker))).flat();
 }
 
+// Each tick hands off its batch and starts a new one, so windows never overlap.
+function ticker(start: number) {
+  let batch: Sample[] = [];
+  let since = start;
+  const onSample = (s: Sample) => batch.push(s);
+  const take = (now: number) => {
+    const w = windowOf(batch, now - since);
+    batch = [];
+    since = now;
+    return w;
+  };
+  return { onSample, take };
+}
+
 export async function run(opts: RunOptions): Promise<Stats> {
   const { baseUrl, seed, op, requests, concurrency, signal } = opts;
   const counters = { started: 0, done: 0 };
   const start = performance.now();
-  const report = () => opts.onProgress?.({
-    done: counters.done,
-    inFlight: counters.started - counters.done,
-    elapsedMs: performance.now() - start,
-  });
+  const tick = ticker(start);
+  const report = () => {
+    const now = performance.now();
+    const window = tick.take(now);
+    opts.onProgress?.({ done: counters.done, inFlight: counters.started - counters.done, elapsedMs: now - start, window });
+  };
   const task = async () => {
     counters.started++;
     const sample = await timed(...requestFor(baseUrl, op, seed), signal);
     counters.done++;
+    if (sample) tick.onSample(sample);
     return sample;
   };
   const timer = setInterval(report, opts.progressMs ?? 500);

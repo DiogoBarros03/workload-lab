@@ -21,11 +21,16 @@ const events = (body: string) =>
     data: JSON.parse(/^data: (.*)$/m.exec(block)?.[1] ?? "null"),
   }));
 
-test("GET / serves the UI", async () => {
+test("GET / serves the built UI and the script it references", async () => {
   const res = await app.inject({ method: "GET", url: "/" });
   assert.equal(res.statusCode, 200);
   assert.match(res.headers["content-type"] as string, /text\/html/);
-  assert.match(res.body, /<form/);
+  assert.match(res.body, /<title>Load lab<\/title>/);
+  const script = /src="(\/assets\/[^"]+\.js)"/.exec(res.body)?.[1];
+  assert.ok(script, res.body);
+  const js = await app.inject({ method: "GET", url: script });
+  assert.equal(js.statusCode, 200);
+  assert.match(js.headers["content-type"] as string, /javascript/);
 });
 
 test("POST /run rejects bodies outside the schema", async () => {
@@ -62,6 +67,16 @@ test("POST /run streams progress, then exactly one result as the last event", as
   assert.deepEqual(seen.filter((e) => e.event !== "progress").map((e) => e.event), ["result"]);
   assert.equal(seen.at(-1)?.event, "result");
   assert.equal(seen.at(-1)?.data.requests, 50);
+});
+
+test("every progress event carries a window with the five stats", async () => {
+  const res = await live.inject({ method: "POST", url: "/run", payload: { op: "read", requests: 50, concurrency: 5 } });
+  const progress = events(res.body).filter((e) => e.event === "progress");
+  assert.ok(progress.length > 0, res.body);
+  for (const p of progress) {
+    assert.deepEqual(Object.keys(p.data.window).toSorted(), ["errors", "p50", "p99", "reqs", "rps"]);
+  }
+  assert.equal(progress.reduce((n, p) => n + p.data.window.reqs, 0), 50);
 });
 
 test("one run at a time; closing the stream stops the run and frees the slot", async () => {

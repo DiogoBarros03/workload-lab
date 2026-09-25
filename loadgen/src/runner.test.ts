@@ -156,6 +156,17 @@ test("progress reports done and in-flight counts, ending at the total", async ()
   assert.equal(seen.at(-1)?.inFlight, 0);
 });
 
+test("progress windows together cover every completed request exactly once", async () => {
+  const seed = await ensureSeed(baseUrl);
+  const reqs: number[] = [];
+  await run({
+    baseUrl, seed, op: "read", requests: 200, concurrency: 8, signal: never(),
+    progressMs: 1, onProgress: (p) => reqs.push(p.window.reqs),
+  });
+  assert.ok(reqs.length > 1, String(reqs.length));
+  assert.equal(reqs.reduce((a, b) => a + b, 0), 200);
+});
+
 test("reset deletes every seed and sink author, then seeding rebuilds them", async () => {
   const seed = await ensureSeed(baseUrl);
   await run({ baseUrl, seed, op: "write", requests: 5, concurrency: 5, signal: never() });

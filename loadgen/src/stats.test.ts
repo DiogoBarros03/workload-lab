@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { summarize } from "./stats.ts";
+import { summarize, windowOf } from "./stats.ts";
 
 test("empty input has zero counts and no latency", () => {
   assert.deepEqual(summarize([], 0), {
@@ -50,4 +50,16 @@ test("status counts per code and null status counts as a network error", () => {
   assert.deepEqual(s.statusCounts, { "200": 2, "201": 1, "404": 1 });
   assert.equal(s.errors, 2);
   assert.equal(s.latency?.max, 6);
+});
+
+test("an empty window has zero requests and no percentiles", () => {
+  assert.deepEqual(windowOf([], 500), { reqs: 0, rps: 0, p50: null, p99: null, errors: 0 });
+});
+
+test("a window has nearest-rank p50/p99 and counts null and 4xx/5xx as errors", () => {
+  const statuses = [200, 201, 399, 400, 404, 500, 503, null, 200, 200];
+  const samples = statuses.map((status, i) => ({ status, ms: (i * 7) % 10 + 1 }));
+  const before = samples.map((x) => x.ms);
+  assert.deepEqual(windowOf(samples, 250), { reqs: 10, rps: 40, p50: 5, p99: 10, errors: 5 });
+  assert.deepEqual(samples.map((x) => x.ms), before);
 });

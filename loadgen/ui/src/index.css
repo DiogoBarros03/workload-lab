@@ -1,0 +1,165 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource/instrument-serif";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+:root {
+  color-scheme: light dark;
+  --canvas: #f7f6f3;
+  --surface: #ffffff;
+  --line: #eaeaea;
+  --ink: #111111;
+  --ink-soft: #2f3437;
+  --ink-muted: #787774;
+  --track: #efeeea;
+  --fill: #111111;
+  --red-bg: #fdebec;
+  --red-fg: #9f2f2d;
+  --blue-bg: #e1f3fe;
+  --blue-fg: #1f6c9f;
+  --green-bg: #edf3ec;
+  --green-fg: #346538;
+  --yellow-bg: #fbf3db;
+  --yellow-fg: #956400;
+
+  /* shadcn tokens, mapped onto the palette above */
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --primary-hover: #333333;
+  --secondary: var(--canvas);
+  --secondary-foreground: var(--ink);
+  --muted: var(--canvas);
+  --muted-foreground: var(--ink-muted);
+  --accent: #efeeea;
+  --accent-foreground: var(--ink);
+  --destructive: var(--red-fg);
+  --border: var(--line);
+  --input: #dddcd8;
+  --ring: #787774;
+  --radius: 8px;
+
+  /* Bklit chart tokens: muted monochrome, no gradients */
+  --chart-1: #2f3437;
+  --chart-2: #a3a29e;
+  --chart-background: var(--surface);
+  --chart-foreground: var(--ink-soft);
+  --chart-foreground-muted: var(--ink-muted);
+  --chart-label: var(--ink-muted);
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: var(--ink-muted);
+  --chart-grid: var(--line);
+  --chart-brush-border: var(--line);
+  --chart-indicator-color: var(--ink);
+  --chart-indicator-secondary-color: var(--ink-muted);
+  --chart-tooltip-background: rgba(17, 17, 17, 0.9);
+  --chart-tooltip-foreground: #ffffff;
+  --chart-tooltip-muted: #c9c8c4;
+  --chart-marker-background: var(--canvas);
+  --chart-marker-border: var(--line);
+  --chart-marker-foreground: var(--ink);
+  --chart-marker-badge-background: var(--ink);
+  --chart-marker-badge-foreground: #ffffff;
+  --chart-segment-background: rgba(17, 17, 17, 0.04);
+  --chart-segment-line: var(--ink-muted);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #161616;
+    --surface: #1c1c1c;
+    --line: rgba(255, 255, 255, 0.08);
+    --ink: #ededec;
+    --ink-soft: #d4d3d0;
+    --ink-muted: #9b9a97;
+    --track: rgba(255, 255, 255, 0.08);
+    --fill: #ededec;
+    --red-bg: #3a2021;
+    --red-fg: #f4b4b1;
+    --blue-bg: #17303f;
+    --blue-fg: #9cd3f5;
+    --green-bg: #1f2e21;
+    --green-fg: #a9d3ac;
+    --yellow-bg: #362c14;
+    --yellow-fg: #e9c878;
+    --primary: #ededec;
+    --primary-foreground: #111111;
+    --primary-hover: #cfcecb;
+    --accent: #262626;
+    --input: rgba(255, 255, 255, 0.14);
+    --ring: #9b9a97;
+    --chart-1: #d4d3d0;
+    --chart-2: #6f6e6b;
+    --chart-tooltip-background: rgba(237, 237, 236, 0.92);
+    --chart-tooltip-foreground: #111111;
+    --chart-tooltip-muted: #55544f;
+    --chart-marker-badge-foreground: #111111;
+    --chart-segment-background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", "Helvetica Neue", sans-serif;
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-track: var(--track);
+  --color-fill: var(--fill);
+  --color-red-bg: var(--red-bg);
+  --color-red-fg: var(--red-fg);
+  --color-blue-bg: var(--blue-bg);
+  --color-blue-fg: var(--blue-fg);
+  --color-green-bg: var(--green-bg);
+  --color-green-fg: var(--green-fg);
+  --color-yellow-bg: var(--yellow-bg);
+  --color-yellow-fg: var(--yellow-fg);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background font-sans text-ink-soft antialiased;
+    line-height: 1.6;
+  }
+  .font-serif {
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+}

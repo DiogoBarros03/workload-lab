@@ -1,11 +1,13 @@
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ServerResponse } from "node:http";
 import Fastify, { type FastifyBaseLogger } from "fastify";
+import fastifyStatic from "@fastify/static";
 import { ensureSeed, reset, run, type Op } from "./runner.ts";
 import { readCgroup, type Cgroup } from "./cgroup.ts";
 import { buildStatus, type Prev } from "./status.ts";
 
-const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+// Built by `npm run ui:build`; the Dockerfile copies it in.
+const uiRoot = fileURLToPath(new URL("../ui/dist", import.meta.url));
 
 const runBody = {
   type: "object",
@@ -70,8 +72,6 @@ async function status(baseUrl: string) {
 export function buildApp(baseUrl: string) {
   const app = Fastify({ logger: process.env.LOG_LEVEL !== "silent" });
 
-  app.get("/", (_req, reply) => reply.type("text/html; charset=utf-8").send(html));
-
   app.get("/status", () => status(baseUrl));
 
   app.post<RunReq>("/run", { schema: { body: runBody } }, async (req, reply) => {
@@ -95,6 +95,8 @@ export function buildApp(baseUrl: string) {
       return reply.code(502).send({ error: String(err) });
     }
   });
+
+  app.register(fastifyStatic, { root: uiRoot });
 
   return app;
 }

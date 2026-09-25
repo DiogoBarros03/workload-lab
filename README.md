@@ -66,15 +66,27 @@ Knobs, all environment: `RPS` (default 1), `DURATION` (default `30s`).
 
 `loadgen` starts with `up`. Open http://localhost:3200, pick an operation (`read` = `GET /books/:id`,
 `write` = `POST /books`, `mixed` = 50/50), a total request count (1..200000) and a concurrency
-(1..5000), and run. Each run appends a row to the history table so runs can be compared. Before a
+(1..5000), and run. Each run appends a row to the history table (kept in the browser's `localStorage`) so runs can be compared. Before a
 run it ensures 20 seed authors with 10 books each; writes go under 20 sink authors; Reset
 deletes both (and, by cascade, their books). One run at a time: closing the stream stops the run.
 A Containers panel polls `GET /status` every 2 s: each service reads its own cgroup files (the api via `GET /stats`), so CPU, throttling and memory against the limits show without any container runtime socket.
 
+The UI is a Vite + React + Tailwind app in `loadgen/ui/`, built into `loadgen/ui/dist` and served
+by the loadgen server as static files (the Dockerfile's `ui` stage builds it). To work on it, keep
+the stack up and run the Vite dev server, which proxies `/run`, `/status` and `/reset` to :3200:
+
+```sh
+cd loadgen && npm ci && npm --prefix ui ci
+npm run ui:dev         # http://localhost:5173, hot reload
+npm run ui:test        # Vitest unit tests for the pure state, SSE and formatting code
+npm run ui:typecheck   # tsc -b over ui/
+npm run ui:build       # writes ui/dist; rebuild the loadgen image to ship it
+```
+
 | Method | Path | Answers |
 |---|---|---|
 | `GET` | `/` | the UI |
-| `POST` | `/run` `{op, requests, concurrency}` | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs}`, then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms); `409` while a run is active |
+| `POST` | `/run` `{op, requests, concurrency}` | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs, window}`, where `window` is `{reqs, rps, p50, p99, errors}` for requests finished since the previous `progress` (p50/p99 `null` when empty; errors = network failures and 4xx/5xx), then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms); `409` while a run is active |
 | `GET` | `/status` | `{containers: [{service, up, cpuCores, cpuQuotaCores, nrThrottled, memBytes, memMaxBytes}]}` for api, db, loadgen; each service reads its own cgroup, no runtime socket |
 | `POST` | `/reset` | `{deleted: n}` authors removed; `409` while a run is active |
 
