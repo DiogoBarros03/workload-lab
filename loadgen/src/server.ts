@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
 import Fastify, { type FastifyBaseLogger } from "fastify";
 import { ensureSeed, reset, run, type Op } from "./runner.ts";
+import { readCgroup, type Cgroup } from "./cgroup.ts";
+import { buildStatus, type Prev } from "./status.ts";
 
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 
@@ -43,10 +45,34 @@ async function stream(baseUrl: string, body: RunReq["Body"], raw: ServerResponse
   if (!closed.signal.aborted) raw.end();
 }
 
+// Unreachable or timed out is an expected state here: it renders as down.
+async function probe(url: string) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return { status: res.status, body: await res.json() };
+  } catch {
+    return null;
+  }
+}
+
+// Previous samples for the cpu rate; replaced on each /status, never mutated.
+let prev: Prev = { api: null, loadgen: null };
+
+async function status(baseUrl: string) {
+  const [health, stats] = await Promise.all([probe(`${baseUrl}/health`), probe(`${baseUrl}/stats`)]);
+  const apiStats: Cgroup | null = stats?.status === 200 ? stats.body : null;
+  const selfStats = readCgroup();
+  const result = buildStatus({ apiHealth: health?.status ?? null, apiStats, selfStats, prev });
+  prev = { api: apiStats, loadgen: selfStats };
+  return result;
+}
+
 export function buildApp(baseUrl: string) {
   const app = Fastify({ logger: process.env.LOG_LEVEL !== "silent" });
 
   app.get("/", (_req, reply) => reply.type("text/html; charset=utf-8").send(html));
+
+  app.get("/status", () => status(baseUrl));
 
   app.post<RunReq>("/run", { schema: { body: runBody } }, async (req, reply) => {
     if (active) return reply.code(409).send(busy);

@@ -17,10 +17,17 @@
   th, td { border-bottom: 1px solid var(--line); padding: 4px 10px; text-align: right; white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
   #progress { color: var(--muted); min-height: 1.5em; }
+  #bar { width: 100%; max-width: 480px; margin-top: 12px; }
+  meter { width: 6em; vertical-align: middle; }
+  .down { color: #c0392b; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { .down { color: #ff7b6b; } }
 </style>
 </head>
 <body>
 <h1>Load generator</h1>
+<h2>Containers</h2>
+<div class="scroll"><table><tbody id="containers" aria-live="off"><tr><td>Loading...</td></tr></tbody></table></div>
+
 <form id="form">
   <label>Operation
     <select name="op"><option>read</option><option>write</option><option>mixed</option></select>
@@ -30,6 +37,7 @@
   <button id="run" type="submit">Run</button>
   <button id="reset" type="button">Reset data</button>
 </form>
+<progress id="bar" max="1" value="0" aria-label="Run progress"></progress>
 <p id="progress" role="status" aria-live="polite"></p>
 
 <h2>Current run</h2>
@@ -45,7 +53,9 @@
 const $ = (id) => document.getElementById(id);
 const ms = (v) => v.toFixed(1);
 const statuses = (s) => Object.entries(s.statusCounts).map(([k, v]) => `${k}: ${v}`).join(", ");
+const mib = (b) => (b / 1024 / 1024).toFixed(0);
 let runs = 0;
+let line = "";
 
 function row(cells, tag = "td") {
   const tr = document.createElement("tr");
@@ -67,15 +77,22 @@ function showResult(cfg, s) {
     ms(l.p50), ms(l.p95), ms(l.p99), ms(l.max), ms(l.mean), s.errors, statuses(s)].map(String)));
 }
 
+function showProgress(cfg, p) {
+  const s = p.elapsedMs / 1000;
+  const rps = s > 0 ? (p.done / s).toFixed(0) : "0";
+  $("bar").value = p.done;
+  line = `${p.done} / ${cfg.requests} · in flight ${p.inFlight} · ${s.toFixed(1)} s · ${rps} req/s`;
+  $("progress").textContent = line;
+}
+
 // Returns true when the block ends the run (result or error).
 function handle(cfg, block) {
   const event = /^event: (.*)$/m.exec(block)?.[1];
   const line = /^data: (.*)$/m.exec(block);
   if (!line) return false;
   const data = JSON.parse(line[1]);
-  if (event === "progress") $("progress").textContent =
-    `${data.done} / ${cfg.requests} done, ${data.inFlight} in flight, ${(data.elapsedMs / 1000).toFixed(1)} s`;
-  if (event === "result") { $("progress").textContent = "Done."; showResult(cfg, data); }
+  if (event === "progress") showProgress(cfg, data);
+  if (event === "result") { $("bar").value = cfg.requests; $("progress").textContent = `Done. ${line}`; showResult(cfg, data); }
   if (event === "error") $("progress").textContent = `Failed: ${data.error}`;
   return event === "result" || event === "error";
 }
@@ -107,6 +124,7 @@ $("form").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
   const cfg = { op: f.get("op"), requests: Number(f.get("requests")), concurrency: Number(f.get("concurrency")) };
+  Object.assign($("bar"), { max: cfg.requests, value: 0 });
   $("progress").textContent = "Seeding...";
   busy(() => stream(cfg));
 });
@@ -117,6 +135,41 @@ $("reset").addEventListener("click", () => busy(async () => {
   if (!res.ok) throw new Error(body.error);
   $("progress").textContent = `Reset: deleted ${body.deleted} authors and their books.`;
 }));
+
+// Text carries the value; the meter only appears when there is a limit to compare with.
+function gauge(label, used, limit, unit, fmt) {
+  const td = document.createElement("td");
+  const u = used === null ? "–" : fmt(used);
+  td.textContent = limit === null ? `${label} ${u} ${unit} · no limit` : `${label} ${u} / ${fmt(limit)} ${unit}`;
+  if (limit !== null && used !== null) {
+    const m = Object.assign(document.createElement("meter"), { min: 0, max: limit, value: used });
+    m.setAttribute("aria-label", `${label} used of limit`);
+    td.append(" ", m);
+  }
+  return td;
+}
+
+function containerRow(c) {
+  const up = Object.assign(document.createElement("td"), { textContent: c.up ? "up" : "down", className: c.up ? "" : "down" });
+  const cpu = gauge("cpu", c.cpuCores, c.cpuQuotaCores, "cores", (v) => String(+v.toFixed(2)));
+  const mem = gauge("mem", c.memBytes, c.memMaxBytes, "MiB", mib);
+  const throttled = c.cpuQuotaCores === null || c.nrThrottled === null ? "" : `throttled ${c.nrThrottled}`;
+  const tr = row([c.service]);
+  tr.append(up, cpu, Object.assign(document.createElement("td"), { textContent: throttled }), mem);
+  return tr;
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/status");
+    const body = await res.json();
+    $("containers").replaceChildren(...body.containers.map(containerRow));
+  } catch (e) {
+    $("containers").replaceChildren(row([`Status unavailable: ${e.message}`]));
+  }
+}
+poll();
+setInterval(poll, 2000);
 </script>
 </body>
 </html>

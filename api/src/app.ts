@@ -1,5 +1,6 @@
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import type { Store, AuthorInput, BookInput } from "./db.ts";
+import { readCgroup } from "./cgroup.ts";
 
 const authorBody = {
   type: "object",
@@ -94,6 +95,8 @@ export function buildApp(store: Store) {
       return reply.code(503).send({ status: "db unreachable" });
     }
   });
+
+  app.get("/stats", async () => readCgroup());
 
   registerCrud<unknown, AuthorInput>(app, "/authors", store.authors, authorBody);
   registerCrud<unknown, BookInput>(app, "/books", store.books, bookBody);

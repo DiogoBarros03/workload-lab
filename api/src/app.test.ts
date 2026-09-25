@@ -26,6 +26,15 @@ test("health reports ok when the database answers", async () => {
   assert.deepEqual(json(r), { status: "ok" });
 });
 
+test("stats reports this container's cgroup cpu and memory", async () => {
+  const r = await app.inject({ method: "GET", url: "/stats" });
+  assert.equal(r.statusCode, 200);
+  const s = json(r);
+  assert.ok(Number.isInteger(s.cpuUsageUsec) && s.cpuUsageUsec > 0, String(s.cpuUsageUsec));
+  assert.ok(Number.isInteger(s.memCurrentBytes) && s.memCurrentBytes > 0, String(s.memCurrentBytes));
+  assert.ok(Math.abs(s.sampledAtMs - Date.now()) < 5000);
+});
+
 test("author lifecycle: create, read, update, delete", async () => {
   const created = await post("/authors", { name: "Octavia Butler", country: "US" });
   assert.equal(created.statusCode, 201);

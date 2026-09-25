@@ -96,3 +96,32 @@ test("one run at a time; closing the stream stops the run and frees the slot", a
   }
   assert.equal(status, 200);
 });
+
+test("GET /status reports api and db down, not an error, when the api is unreachable", async () => {
+  const res = await app.inject({ method: "GET", url: "/status" });
+  assert.equal(res.statusCode, 200);
+  const rows = Object.fromEntries(res.json().containers.map((c: { service: string }) => [c.service, c]));
+  assert.deepEqual(Object.keys(rows), ["api", "db", "loadgen"]);
+  assert.equal(rows.api.up, false);
+  assert.equal(rows.db.up, false);
+  assert.equal(rows.api.memBytes, null);
+  assert.equal(rows.loadgen.up, true);
+  assert.equal(typeof rows.loadgen.memBytes, "number");
+});
+
+test("GET /status shows live api and db, with an api cpu rate on the second sample", async () => {
+  const get = async () => Object.fromEntries(
+    (await live.inject({ method: "GET", url: "/status" })).json().containers.map((c: { service: string }) => [c.service, c]),
+  );
+  const first = await get();
+  assert.equal(first.api.up, true);
+  assert.equal(first.db.up, true);
+  await sleep(1000);
+  const second = await get();
+  assert.equal(typeof second.api.cpuCores, "number");
+  assert.ok(second.api.cpuCores >= 0 && second.api.cpuCores <= 1, String(second.api.cpuCores));
+  assert.equal(second.api.cpuQuotaCores, 0.5);
+  assert.equal(second.api.memMaxBytes, 134217728);
+  assert.equal(typeof second.api.memBytes, "number");
+  assert.equal(typeof second.api.nrThrottled, "number");
+});

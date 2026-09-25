@@ -69,11 +69,13 @@ Knobs, all environment: `RPS` (default 1), `DURATION` (default `30s`).
 (1..5000), and run. Each run appends a row to the history table so runs can be compared. Before a
 run it ensures 20 seed authors with 10 books each; writes go under 20 sink authors; Reset
 deletes both (and, by cascade, their books). One run at a time: closing the stream stops the run.
+A Containers panel polls `GET /status` every 2 s: each service reads its own cgroup files (the api via `GET /stats`), so CPU, throttling and memory against the limits show without any container runtime socket.
 
 | Method | Path | Answers |
 |---|---|---|
 | `GET` | `/` | the UI |
 | `POST` | `/run` `{op, requests, concurrency}` | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs}`, then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms); `409` while a run is active |
+| `GET` | `/status` | `{containers: [{service, up, cpuCores, cpuQuotaCores, nrThrottled, memBytes, memMaxBytes}]}` for api, db, loadgen; each service reads its own cgroup, no runtime socket |
 | `POST` | `/reset` | `{deleted: n}` authors removed; `409` while a run is active |
 
 ## Four examples
