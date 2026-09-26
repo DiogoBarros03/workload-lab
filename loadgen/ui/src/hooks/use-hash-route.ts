@@ -6,5 +6,5 @@ const subscribe = (onChange: () => void) => {
   return () => window.removeEventListener("hashchange", onChange);
 };
 
-// The current project, read from location.hash; no router needed.
+// The current route, read from location.hash; no router needed.
 export const useHashRoute = () => routeFor(useSyncExternalStore(subscribe, () => window.location.hash));

@@ -42,6 +42,15 @@ const FIRST_READY = PROJECTS.find((x) => x.status === "ready");
 if (!FIRST_READY) throw new Error("the roadmap has no ready project");
 const DEFAULT: Project = FIRST_READY;
 
-// Unknown or empty hashes land on the first ready project.
-export const routeFor = (hash: string): Project =>
-  PROJECTS.find((x) => hrefOf(x) === hash || legacyHrefOf(x) === hash) ?? DEFAULT;
+export type Route = { kind: "home" } | { kind: "project"; project: Project };
+
+export const HOME_HREF = "#/";
+const HOME_HASHES = ["", "#", HOME_HREF];
+
+// Empty hashes go home; unknown ones land on the first ready project.
+export const routeFor = (hash: string): Route =>
+  HOME_HASHES.includes(hash)
+    ? { kind: "home" }
+    : { kind: "project", project: PROJECTS.find((x) => hrefOf(x) === hash || legacyHrefOf(x) === hash) ?? DEFAULT };
+
+export const projectOf = (route: Route): Project | null => (route.kind === "project" ? route.project : null);

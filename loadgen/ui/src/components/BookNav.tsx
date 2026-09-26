@@ -3,10 +3,11 @@ import { CATEGORIES, type Category } from "@/lib/catalog";
 import type { Project } from "@/lib/projects";
 import type { Health, Service } from "@/lib/status";
 import { bookNodeId, useTreeState, type Tree } from "@/hooks/use-tree-state";
+import { HomeLink } from "./HomeLink";
 import { ProjectNav } from "./ProjectNav";
 import { TreeNode } from "./TreeNode";
 
-type NavProps = { active: Project; health: Record<Service, Health>; onNavigate?: () => void };
+type NavProps = { active: Project | null; health: Record<Service, Health>; onNavigate?: () => void };
 type BranchProps = NavProps & { tree: Tree; setOpen: (id: string, open: boolean) => void };
 
 function BookBranch({ book, tree, setOpen, active, health, onNavigate }: BranchProps & { book: Book }) {
@@ -39,7 +40,8 @@ function CategoryBranch({ category, ...props }: BranchProps & { category: Catego
 export function BookNav({ active, health, onNavigate }: NavProps) {
   const [tree, setOpen] = useTreeState(active);
   return (
-    <nav aria-label="Library">
+    <nav aria-label="Library" className="flex flex-col gap-1">
+      <HomeLink active={active === null} onNavigate={onNavigate} />
       <ul className="flex flex-col gap-1">
         {CATEGORIES.map((c) => <li key={c.id}><CategoryBranch category={c} tree={tree} setOpen={setOpen} active={active} health={health} onNavigate={onNavigate} /></li>)}
       </ul>

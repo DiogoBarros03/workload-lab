@@ -24,3 +24,8 @@ test("pageTitle joins project, book and app, with the outage prefix", () => {
   expect(pageTitle(PROJECTS[0], false)).toBe("000 Baseline · Designing Distributed Systems · Load lab");
   expect(pageTitle(PROJECTS[4], true)).toBe("ERROR · 004 Replicated load-balanced service · Designing Distributed Systems · Load lab");
 });
+
+test("pageTitle at home is the app name, with the outage prefix", () => {
+  expect(pageTitle(null, false)).toBe("Load lab");
+  expect(pageTitle(null, true)).toBe("ERROR · Load lab");
+});

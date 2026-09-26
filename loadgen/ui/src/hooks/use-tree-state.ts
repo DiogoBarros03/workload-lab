@@ -45,12 +45,12 @@ export function openPathFor(project: Project): Tree {
 const browserStore: Store = () => window.localStorage;
 
 // Stored tree on load; route changes force the active project's ancestors open.
-export function useTreeState(active: Project) {
+export function useTreeState(active: Project | null) {
   const [tree, setTree] = useState(() => readTree(browserStore));
   const [shown, setShown] = useState(active);
   if (shown !== active) {
     setShown(active);
-    setTree({ ...tree, ...openPathFor(active) });
+    if (active) setTree({ ...tree, ...openPathFor(active) });
   }
   const setOpen = (id: string, open: boolean) => {
     setTree((t) => withOpen(t, id, open));

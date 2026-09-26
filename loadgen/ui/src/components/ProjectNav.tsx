@@ -47,7 +47,7 @@ function Item({ p, active, health, onNavigate }: { p: Project; active: boolean; 
 }
 
 // A book's projects, indented under it with a 1px rule marking the nesting.
-export function ProjectNav({ projects, active, health, onNavigate }: { projects: readonly Project[]; active: Project; health: HealthMap; onNavigate?: () => void }) {
+export function ProjectNav({ projects, active, health, onNavigate }: { projects: readonly Project[]; active: Project | null; health: HealthMap; onNavigate?: () => void }) {
   return (
     <ul className="ml-3 flex flex-col gap-1 border-l pl-2">
       {projects.map((p) => <li key={p.id}><Item p={p} active={p === active} health={health} onNavigate={onNavigate} /></li>)}

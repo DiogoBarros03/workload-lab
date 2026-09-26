@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { hrefOf, PROJECTS, routeFor } from "./projects";
+import { hrefOf, PROJECTS, projectOf, routeFor } from "./projects";
 
 test("project ids are unique three-digit strings in roadmap order", () => {
   const ids = PROJECTS.map((p) => p.id);
@@ -17,19 +17,30 @@ test("hrefOf namespaces id and slug under the book", () => {
   expect(hrefOf(PROJECTS[5])).toBe("#/dds/005-sharded-service");
 });
 
+const projectAt = (hash: string) => projectOf(routeFor(hash))?.id;
+
+test("routeFor sends the empty hash, # and #/ home", () => {
+  for (const h of ["", "#", "#/"]) expect(routeFor(h)).toEqual({ kind: "home" });
+});
+
 test("routeFor resolves the old unnamespaced form to the same project", () => {
-  for (const p of PROJECTS) expect(routeFor(`#/${p.id}-${p.slug}`)).toBe(routeFor(hrefOf(p)));
-  expect(routeFor("#/005-sharded-service").id).toBe("005");
+  for (const p of PROJECTS) expect(routeFor(`#/${p.id}-${p.slug}`)).toEqual(routeFor(hrefOf(p)));
+  expect(projectAt("#/005-sharded-service")).toBe("005");
 });
 
 test("routeFor resolves every project's own href back to it", () => {
-  for (const p of PROJECTS) expect(routeFor(hrefOf(p))).toBe(p);
+  for (const p of PROJECTS) expect(routeFor(hrefOf(p))).toEqual({ kind: "project", project: p });
 });
 
-test("routeFor falls back to the first ready project for empty or unknown hashes", () => {
-  for (const h of ["", "#", "#/", "#/999-nope", "#/000", "#000-baseline", "#/000-baseline/extra", "#/dds/", "#/xyz/005-sharded-service", "#/dds/005-sharded", "#dds/005-sharded-service"]) {
-    expect(routeFor(h).id).toBe("000");
+test("routeFor falls back to the first ready project for unknown hashes", () => {
+  for (const h of ["#//", "#/999-nope", "#/000", "#000-baseline", "#/000-baseline/extra", "#/dds/", "#/xyz/005-sharded-service", "#/dds/005-sharded", "#dds/005-sharded-service"]) {
+    expect(projectAt(h)).toBe("000");
   }
+});
+
+test("projectOf is null at home and the project otherwise", () => {
+  expect(projectOf({ kind: "home" })).toBeNull();
+  expect(projectOf({ kind: "project", project: PROJECTS[3] })).toBe(PROJECTS[3]);
 });
 
 test("000 Baseline declares api, db and loadgen", () => {

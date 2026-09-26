@@ -3,7 +3,13 @@
 @import "@fontsource/instrument-serif";
 @import "@fontsource-variable/jetbrains-mono";
 
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/* Dark follows the OS unless data-theme picks a side. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) { @slot; }
+  }
+  &:where([data-theme="dark"], [data-theme="dark"] *) { @slot; }
+}
 
 :root {
   color-scheme: light dark;
@@ -81,7 +87,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --canvas: #161616;
     --surface: #1c1c1c;
     --line: rgba(255, 255, 255, 0.08);
@@ -120,6 +127,52 @@
     --chart-error: #f4b4b1;
     --chart-commits: #7fb8dc;
   }
+}
+
+/* The same dark tokens, chosen explicitly from the theme toggle. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #161616;
+  --surface: #1c1c1c;
+  --line: rgba(255, 255, 255, 0.08);
+  --ink: #ededec;
+  --ink-soft: #d4d3d0;
+  --ink-muted: #9b9a97;
+  --track: rgba(255, 255, 255, 0.08);
+  --fill: #ededec;
+  --bar-fill: #ededec;
+  --bar-warn: #e9c878;
+  --bar-hot: #f4b4b1;
+  --red-bg: #3a2021;
+  --red-fg: #f4b4b1;
+  --blue-bg: #17303f;
+  --blue-fg: #9cd3f5;
+  --green-bg: #1f2e21;
+  --green-fg: #a9d3ac;
+  --yellow-bg: #362c14;
+  --yellow-fg: #e9c878;
+  --primary: #ededec;
+  --primary-foreground: #111111;
+  --primary-hover: #cfcecb;
+  --accent: #262626;
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #9b9a97;
+  --chart-1: #d4d3d0;
+  --chart-2: #6f6e6b;
+  --chart-tooltip-background: rgba(237, 237, 236, 0.92);
+  --chart-tooltip-foreground: #111111;
+  --chart-tooltip-muted: #55544f;
+  --chart-marker-badge-foreground: #111111;
+  --chart-segment-background: rgba(255, 255, 255, 0.04);
+  --chart-rps: #d4d3d0;
+  --chart-ref: #9b9a97;
+  --chart-p99: #9cd3f5;
+  --chart-error: #f4b4b1;
+  --chart-commits: #7fb8dc;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 @theme inline {
@@ -192,5 +245,60 @@
   }
   .font-mono {
     font-variant-numeric: tabular-nums;
+  }
+}
+
+/* The README on the home page, in the site's type scale. */
+@layer components {
+  .prose-md {
+    @apply flex flex-col gap-4 text-body text-ink-soft;
+  }
+  .prose-md > :is(p, ul, ol) {
+    @apply max-w-prose;
+  }
+  .prose-md h1 {
+    @apply font-serif text-question text-ink;
+  }
+  .prose-md h2 {
+    @apply mt-8 font-serif text-title text-ink;
+  }
+  .prose-md h3 {
+    @apply mt-4 text-body font-semibold text-ink;
+  }
+  .prose-md :is(ul, ol) {
+    @apply flex flex-col gap-1 pl-6;
+  }
+  .prose-md ul {
+    @apply list-disc;
+  }
+  .prose-md ol {
+    @apply list-decimal;
+  }
+  .prose-md strong {
+    @apply font-semibold text-ink;
+  }
+  .prose-md a {
+    @apply rounded-sm text-ink underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+  .prose-md code {
+    @apply rounded-sm border bg-card px-1 py-0.5 font-mono text-[0.875rem];
+    /* Operators like !== stay literal; the README documents them. */
+    font-variant-ligatures: none;
+  }
+  .prose-md pre {
+    @apply overflow-x-auto rounded-lg border bg-card p-4 leading-relaxed;
+  }
+  .prose-md pre code {
+    @apply border-0 bg-transparent p-0;
+  }
+  /* Wide tables scroll inside their own box instead of the page. */
+  .prose-md table {
+    @apply block w-full overflow-x-auto border-collapse text-meta;
+  }
+  .prose-md :is(th, td) {
+    @apply border px-3 py-2 text-left align-top;
+  }
+  .prose-md th {
+    @apply bg-card font-medium text-ink;
   }
 }

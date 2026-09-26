@@ -20,5 +20,6 @@ export const firstReadyOf = (book: Book): Project => book.projects.find((p) => p
 
 export const breadcrumbOf = (project: Project) => `Books · ${bookOf(project).title}`;
 
-export const pageTitle = (project: Project, outage: boolean) =>
-  `${outage ? "ERROR · " : ""}${project.id} ${project.title} · ${bookOf(project).title} · Load lab`;
+// A null project is the home page.
+export const pageTitle = (project: Project | null, outage: boolean) =>
+  `${outage ? "ERROR · " : ""}${project ? `${project.id} ${project.title} · ${bookOf(project).title} · ` : ""}Load lab`;
