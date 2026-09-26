@@ -21,12 +21,10 @@ const DB = node("db", "db", "store", { sub: "Postgres 16" });
 
 const BASELINE: Learning = {
   learned: [
-    "Reads are bound by the API's CPU quota. At 3 000 RPS the container uses 0.26 of 0.5 cores with p99 15 ms; at 5 000 it is throttled 166 times in 20 s, memory reaches 128 MiB, and a third of the requests are dropped or fail.",
-    "Writes are bound by the connection pool. Ten connections at about 12 ms per insert give a ceiling near 800 RPS; at 1 000 RPS the pool is full with 3 865 requests waiting while CPU sits at 0.37 cores.",
-    "Past the knee the system fails by queueing, not by erroring. Latency climbs to seconds, in-flight climbs to the 10 000 cap, memory fills, and the kernel kills the process (exit 137).",
-    "Little's law holds: in-flight equals RPS times latency. At 1 000 RPS with p50 1.8 s the run peaked at 4 087 requests in flight.",
-    "Health checks that share the traffic pool lie under load. Moving them to a dedicated connection made a saturated API report as up in under a millisecond instead of timing out.",
-    "A process that dies when its database disappears needs something to restart it. The restart policy stands in for a scheduler until Kubernetes does it.",
+    "This project starts with the simplest shape a service can have: one container for the API, one for the database, and nothing between them. It works well while traffic is light. A hundred requests a second barely register, and a thousand still come back in a few milliseconds.",
+    "The trouble begins when users keep arriving. Every request needs a slice of the API's processor time and a turn on one of its ten database connections. Once those are fully used, new requests do not fail; they wait. Waiting requests pile up in memory, each one holding a connection open, until the container runs out of room and the kernel kills it. From the outside the service goes from fast to slow to gone, and the moment it tips over depends on the kind of work: reads exhaust the processor first, writes exhaust the connections first, at only a few hundred writes a second.",
+    "The obvious answer is a bigger box: more CPU, more memory, more connections. It moves the tipping point, but it does not remove it, and it makes every request more expensive whether the system is busy or idle. Growth is not the problem to solve; the shape of the system is.",
+    "That is what the rest of this lab is about. Each following project adds one architectural idea from the book, such as running several copies behind a load balancer, moving writes onto a queue, or splitting the data across shards, and measures the same workload again. The goal is to handle more work with fewer resources, so the system stays fast and affordable as it grows, instead of paying for headroom it rarely uses.",
   ],
   architecture: {
     summary: "One synchronous request path. Each request holds a pooled connection for the duration of its query; nothing queues, retries, or sheds load.",
@@ -38,13 +36,9 @@ const BASELINE: Learning = {
     edges: [{ from: "loadgen", to: "api", label: "HTTP, fixed rate" }, { from: "api", to: "db", label: "SQL, 10 connections" }],
   },
   flaws: [
-    "Single instance. One process and one CPU quota; there is no way to add capacity except a bigger box.",
-    "No backpressure. The API accepts every connection until memory runs out; nothing sheds load or answers 503 early.",
-    "No server-side timeouts. A request waits for a pool connection for as long as the client will wait.",
-    "Pool size is a guess. Ten connections is the write ceiling, and nothing measures whether the database could take more.",
-    "No retries, no circuit breaker. A database blip becomes a burst of 503s for every caller.",
-    "Health conflates the app with its dependency. A database outage makes the API report unhealthy even though the process is fine.",
-    "Single points of failure. One API, one database, no replicas, no failover.",
+    "Everything depends on one copy of each part. If the API's container is full, no other container can take the overflow; if it crashes, nothing answers until it restarts; if the database is unreachable, every request fails at once. There is no way to add capacity except to make the single box bigger.",
+    "Nothing protects the system from its own callers. The API accepts every request that arrives and lets it wait for as long as it takes, so a burst of traffic turns into a backlog that consumes memory instead of being turned away early. It also has no notion of retrying, timing out, or backing off when the database is slow, so a small hiccup downstream becomes a wave of errors upstream.",
+    "The limits are guesses. Ten database connections were chosen without measuring what the database could actually serve, and that guess is the ceiling for writes. A system that cannot see its own bottleneck cannot fix it.",
   ],
 };
 

@@ -16,8 +16,8 @@ test("every edge joins two existing nodes in adjacent columns, left to right", (
 });
 
 test("000 has measured lessons and flaws; upcoming projects have neither", () => {
-  expect(LEARNING["000"].learned).toHaveLength(6);
-  expect(LEARNING["000"].flaws).toHaveLength(7);
+  expect(LEARNING["000"].learned).toHaveLength(4);
+  expect(LEARNING["000"].flaws).toHaveLength(3);
   expect(LEARNING["000"].architecture.nodes.map((n) => n.id)).toEqual(["loadgen", "api", "db"]);
   for (const p of PROJECTS.filter((x) => x.status === "upcoming")) {
     expect([p.id, LEARNING[p.id].learned, LEARNING[p.id].flaws]).toEqual([p.id, null, null]);

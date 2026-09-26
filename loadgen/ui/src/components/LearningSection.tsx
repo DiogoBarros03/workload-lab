@@ -17,21 +17,12 @@ function Part({ title, children }: { title: string; children: React.ReactNode })
 
 const NotYet = () => <p className="text-muted-foreground">Not measured yet. This project is not built.</p>;
 
-function Lessons({ items }: { items: string[] | null }) {
-  if (items === null) return <NotYet />;
+function Prose({ paragraphs }: { paragraphs: string[] | null }) {
+  if (paragraphs === null) return <NotYet />;
   return (
-    <ol className="flex max-w-prose list-decimal flex-col gap-3 pl-6 marker:font-mono marker:text-muted-foreground">
-      {items.map((f) => <li key={f} className="pl-1"><MonoDigits text={f} /></li>)}
-    </ol>
-  );
-}
-
-function Flaws({ items }: { items: string[] | null }) {
-  if (items === null) return <NotYet />;
-  return (
-    <ul className="flex max-w-prose list-disc flex-col gap-3 pl-6 marker:text-muted-foreground">
-      {items.map((f) => <li key={f} className="pl-1"><MonoDigits text={f} /></li>)}
-    </ul>
+    <div className="flex max-w-prose flex-col gap-4">
+      {paragraphs.map((p) => <p key={p}><MonoDigits text={p} /></p>)}
+    </div>
   );
 }
 
@@ -39,12 +30,12 @@ export function LearningSection({ learning: l }: { learning: Learning }) {
   return (
     <section aria-labelledby="learning-title" className="flex flex-col gap-8">
       <h2 id="learning-title" className="font-serif text-3xl text-ink">Learning</h2>
-      <Part title="What We Learned"><Lessons items={l.learned} /></Part>
+      <Part title="What We Learned"><Prose paragraphs={l.learned} /></Part>
       <Part title="Current Architecture">
         <ArchDiagram architecture={l.architecture} />
         <p className="max-w-prose">{l.architecture.summary}</p>
       </Part>
-      <Part title="Flaws"><Flaws items={l.flaws} /></Part>
+      <Part title="Flaws"><Prose paragraphs={l.flaws} /></Part>
     </section>
   );
 }
