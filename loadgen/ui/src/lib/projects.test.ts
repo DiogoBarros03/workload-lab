@@ -31,3 +31,14 @@ test("routeFor falls back to the first ready project for empty or unknown hashes
     expect(routeFor(h).id).toBe("000");
   }
 });
+
+test("000 Baseline declares api, db and loadgen", () => {
+  expect(PROJECTS[0].services).toEqual(["api", "db", "loadgen"]);
+});
+
+test("every project declares at least one known service", () => {
+  for (const p of PROJECTS) {
+    expect(p.services.length).toBeGreaterThan(0);
+    for (const s of p.services) expect(["api", "db", "loadgen"]).toContain(s);
+  }
+});

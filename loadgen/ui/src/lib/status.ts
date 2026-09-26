@@ -1,3 +1,5 @@
+import type { Project } from "./projects";
+
 export type Service = "api" | "db" | "loadgen";
 export type State = "up" | "slow" | "down";
 export type Health = State | "unknown";
@@ -85,3 +87,15 @@ export function runWarning(v: StatusView): string | null {
 
 // First time the current outage was seen; null while healthy.
 export const nextSince = (since: number | null, outage: boolean, now: number) => (outage ? (since ?? now) : null);
+
+export type Pill = { service: Service; state: Health; label: string; ariaLabel: string };
+
+const WORD: Record<Health, string> = { up: "UP", slow: "SLOW", down: "ERROR", unknown: "?" };
+const aria = (s: Service, h: Health) => (h === "unknown" ? `${s} status is unknown` : `${s} is ${h}`);
+
+// Only a ready project's containers run; a service absent from the map is unknown.
+export const pillsFor = (project: Project, health: Partial<Record<Service, Health>>): Pill[] =>
+  project.status !== "ready" ? [] : project.services.map((service) => {
+    const state = health[service] ?? "unknown";
+    return { service, state, label: `${service} ${WORD[state]}`, ariaLabel: aria(service, state) };
+  });

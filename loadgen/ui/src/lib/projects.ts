@@ -1,3 +1,5 @@
+import type { Service } from "./status";
+
 export type Project = {
   id: string;
   bookId: string;
@@ -6,26 +8,30 @@ export type Project = {
   chapter: string;
   question: string;
   status: "ready" | "upcoming";
+  services: readonly Service[];
 };
 
 // Every project so far belongs to Designing Distributed Systems.
-const p = (id: string, slug: string, title: string, chapter: number, question: string): Project =>
-  ({ id, bookId: "dds", slug, title, chapter: `Ch. ${chapter}`, question, status: id === "000" ? "ready" : "upcoming" });
+const p = (id: string, slug: string, title: string, chapter: number, question: string, services: readonly Service[]): Project =>
+  ({ id, bookId: "dds", slug, title, chapter: `Ch. ${chapter}`, question, status: id === "000" ? "ready" : "upcoming", services });
+
+// Planned containers; later projects will refine their lists.
+const CORE: readonly Service[] = ["api", "db", "loadgen"];
 
 // One project per step of the README roadmap.
 export const PROJECTS: readonly Project[] = [
-  p("000", "baseline", "Baseline", 1, "How far does one small container get?"),
-  p("001", "sidecar", "Sidecar", 2, "Can logging and metrics be added without touching the API image?"),
-  p("002", "ambassador", "Ambassador", 3, "Can retries, timeouts and a circuit breaker live outside the app?"),
-  p("003", "adapter", "Adapter", 4, "Can the metrics interface be normalised across two implementations?"),
-  p("004", "replicated-service", "Replicated load-balanced service", 5, "Do N replicas behind a load balancer move the knee, and what does the DB do?"),
-  p("005", "sharded-service", "Sharded service", 6, "When one DB is the wall, does sharding by key help, and what does it cost?"),
-  p("006", "scatter-gather", "Scatter/gather", 7, "Fan a request across shards and merge: tail latency amplification."),
-  p("007", "faas", "FaaS", 8, "Same CRUD as functions: cold starts vs the always-on baseline."),
-  p("008", "ownership-election", "Ownership election", 9, "Who runs the singleton job when there are replicas?"),
-  p("009", "work-queue", "Work queue", 10, "Move writes off the request path: latency vs durability."),
-  p("010", "event-driven-batch", "Event-driven batch", 11, "Chain queues: fan-out, fan-in, filter."),
-  p("011", "coordinated-batch", "Coordinated batch", 12, "Join and reduce across workers."),
+  p("000", "baseline", "Baseline", 1, "How far does one small container get?", CORE),
+  p("001", "sidecar", "Sidecar", 2, "Can logging and metrics be added without touching the API image?", CORE),
+  p("002", "ambassador", "Ambassador", 3, "Can retries, timeouts and a circuit breaker live outside the app?", CORE),
+  p("003", "adapter", "Adapter", 4, "Can the metrics interface be normalised across two implementations?", CORE),
+  p("004", "replicated-service", "Replicated load-balanced service", 5, "Do N replicas behind a load balancer move the knee, and what does the DB do?", CORE),
+  p("005", "sharded-service", "Sharded service", 6, "When one DB is the wall, does sharding by key help, and what does it cost?", CORE),
+  p("006", "scatter-gather", "Scatter/gather", 7, "Fan a request across shards and merge: tail latency amplification.", CORE),
+  p("007", "faas", "FaaS", 8, "Same CRUD as functions: cold starts vs the always-on baseline.", CORE),
+  p("008", "ownership-election", "Ownership election", 9, "Who runs the singleton job when there are replicas?", CORE),
+  p("009", "work-queue", "Work queue", 10, "Move writes off the request path: latency vs durability.", CORE),
+  p("010", "event-driven-batch", "Event-driven batch", 11, "Chain queues: fan-out, fan-in, filter.", CORE),
+  p("011", "coordinated-batch", "Coordinated batch", 12, "Join and reduce across workers.", CORE),
 ];
 
 export const hrefOf = (project: Project) => `#/${project.bookId}/${project.id}-${project.slug}`;

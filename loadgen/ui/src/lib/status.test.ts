@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { dbLoad, deriveStatus, isOutage, loadTone, nextSince, outageMessages, runWarning, type Container } from "./status";
+import { PROJECTS, type Project } from "./projects";
+import { dbLoad, deriveStatus, isOutage, loadTone, nextSince, outageMessages, pillsFor, runWarning, type Container } from "./status";
 
 const row = (service: Container["service"], up: boolean): Container => ({
   service, up, cpuCores: null, cpuQuotaCores: null, nrThrottled: null, memBytes: null, memMaxBytes: null,
@@ -108,4 +109,33 @@ test("dbLoad maps the db fields and reads missing ones as null", () => {
     connUsed: null, connMax: null, activeBackends: null, waitingBackends: null, poolBusy: null,
     poolMax: null, poolWaiting: 3, commitsPerSec: null, rowsPerSec: null, cacheHitRatio: null,
   });
+});
+
+const baseline = PROJECTS[0];
+
+test("pillsFor labels each declared service by its health, in declared order", () => {
+  expect(pillsFor(baseline, { api: "up", db: "slow", loadgen: "down" })).toEqual([
+    { service: "api", state: "up", label: "api UP", ariaLabel: "api is up" },
+    { service: "db", state: "slow", label: "db SLOW", ariaLabel: "db is slow" },
+    { service: "loadgen", state: "down", label: "loadgen ERROR", ariaLabel: "loadgen is down" },
+  ]);
+  expect(pillsFor(baseline, { api: "unknown", db: "up", loadgen: "up" })[0]).toEqual(
+    { service: "api", state: "unknown", label: "api ?", ariaLabel: "api status is unknown" },
+  );
+});
+
+test("pillsFor reads a service missing from the map as unknown", () => {
+  expect(pillsFor(baseline, { api: "up" }).map((x) => [x.service, x.state])).toEqual([["api", "up"], ["db", "unknown"], ["loadgen", "unknown"]]);
+});
+
+test("pillsFor shows only the services the project declares", () => {
+  const apiOnly: Project = { ...baseline, services: ["api"] };
+  expect(pillsFor(apiOnly, { api: "down", db: "down", loadgen: "down" }).map((x) => x.label)).toEqual(["api ERROR"]);
+});
+
+test("pillsFor is empty for an upcoming project: its containers do not run yet", () => {
+  const upcoming = PROJECTS.find((p) => p.status === "upcoming");
+  if (!upcoming) throw new Error("no upcoming project");
+  expect(upcoming.services.length).toBeGreaterThan(0);
+  expect(pillsFor(upcoming, { api: "up", db: "up", loadgen: "up" })).toEqual([]);
 });
