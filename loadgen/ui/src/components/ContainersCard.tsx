@@ -15,7 +15,7 @@ export function ContainersCard({ status, className }: { status: StatusState; cla
         {status.containers === null && !status.error && <p className="text-meta text-muted-foreground">Loading status.</p>}
         {status.containers && (
           <ul className="divide-y divide-border">
-            {status.containers.map((c) => <ContainerRow key={c.service} c={c} />)}
+            {status.containers.map((c) => <ContainerRow key={c.service} c={c} state={status.view.health[c.service]} />)}
           </ul>
         )}
         <CpuChart samples={status.apiCpu} />

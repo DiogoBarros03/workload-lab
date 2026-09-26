@@ -2,7 +2,8 @@ import type { Project } from "./projects";
 
 export type Service = "api" | "db" | "loadgen";
 export type State = "up" | "slow" | "down";
-export type Health = State | "unknown";
+// off: stopped on purpose, as the host operator reports.
+export type Health = State | "unknown" | "off";
 
 const DB_KEYS = [
   "connUsed", "connMax", "activeBackends", "waitingBackends", "poolBusy",
@@ -67,8 +68,8 @@ export const isOutage = (v: StatusView) => v.reason !== null || SERVICES.some((s
 
 // The db is only seen through the api's health check.
 function dbMessage(v: StatusView) {
-  return v.health.api === "down"
-    ? "db cannot be checked while the api is down."
+  return v.health.api === "down" || v.health.api === "off"
+    ? `db cannot be checked while the api is ${v.health.api}.`
     : "db is unreachable: the api's health check answers 503.";
 }
 
@@ -90,7 +91,7 @@ export const nextSince = (since: number | null, outage: boolean, now: number) =>
 
 export type Pill = { service: Service; state: Health; label: string; ariaLabel: string };
 
-const WORD: Record<Health, string> = { up: "UP", slow: "SLOW", down: "ERROR", unknown: "?" };
+const WORD: Record<Health, string> = { up: "UP", slow: "SLOW", down: "ERROR", unknown: "?", off: "OFF" };
 const aria = (s: Service, h: Health) => (h === "unknown" ? `${s} status is unknown` : `${s} is ${h}`);
 
 // Only a ready project's containers run; a service absent from the map is unknown.

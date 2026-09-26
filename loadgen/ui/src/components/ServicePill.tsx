@@ -1,7 +1,7 @@
 import type { Pill } from "@/lib/status";
 import { Tag } from "./Tag";
 
-const TONE = { up: "green", slow: "yellow", down: "red", unknown: "neutral" } as const;
+const TONE = { up: "green", slow: "yellow", down: "red", unknown: "neutral", off: "neutral" } as const;
 
 // One service's health; the word backs the colour, the aria-label reads as a sentence.
 export function ServicePill({ pill, prefix }: { pill: Pill; prefix?: string }) {

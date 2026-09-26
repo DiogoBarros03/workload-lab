@@ -82,6 +82,12 @@ Unknown fields in a body are dropped. While the database is unreachable, routes 
 
 ## Usage
 
+`npm run lab` on the host starts the UI (http://localhost:3200) and the lab operator on
+127.0.0.1:3300; the containers for a project are started and stopped from its page. The operator
+runs on the host so no container ever gets the podman socket. `npm run lab:test` runs its tests
+(`LAB_LIVE=1` adds a live start/stop of api and db). The `podman compose` commands below remain the
+manual alternative.
+
 Requires podman with the compose provider (`docker compose` also works as an alias) and the
 rootless socket running once: `systemctl --user enable --now podman.socket`.
 

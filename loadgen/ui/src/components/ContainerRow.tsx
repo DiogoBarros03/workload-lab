@@ -1,6 +1,6 @@
 import type { Container } from "@/hooks/use-status";
 import { fmtBytes, fmtInt } from "@/lib/format";
-import { stateOf } from "@/lib/status";
+import type { Health } from "@/lib/status";
 import { DbLoadPanel } from "./DbLoadPanel";
 import { Gauge } from "./Gauge";
 import { StatusPill } from "./StatusPill";
@@ -14,7 +14,8 @@ function Throttled({ c }: { c: Container }) {
 }
 
 // Matches the two gauges' height, so the card does not jump on an outage.
-function Body({ c }: { c: Container }) {
+function Body({ c, state }: { c: Container; state: Health }) {
+  if (state === "off") return <p className="flex min-h-[80px] items-center text-meta text-muted-foreground sm:min-h-[38px]">off</p>;
   if (c.service === "db") return <DbLoadPanel c={c} />;
   if (!c.up) return <p className="flex min-h-[80px] items-center text-meta text-muted-foreground sm:min-h-[38px]">no data</p>;
   return (
@@ -25,22 +26,21 @@ function Body({ c }: { c: Container }) {
   );
 }
 
-// The server's reason is shown only when the service is not simply up.
-export function ContainerRow({ c }: { c: Container }) {
-  const state = stateOf(c);
+// The server's reason is shown only when the service is slow or down.
+export function ContainerRow({ c, state }: { c: Container; state: Health }) {
   return (
     <li className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col">
           <span className="font-mono text-ink">{c.service}</span>
-          {state !== "up" && c.reason && <span className="font-mono text-meta text-muted-foreground">{c.reason}</span>}
+          {(state === "slow" || state === "down") && c.reason && <span className="font-mono text-meta text-muted-foreground">{c.reason}</span>}
         </div>
         <div className="flex items-center gap-3">
-          <Throttled c={c} />
+          {state !== "off" && <Throttled c={c} />}
           <StatusPill health={state} />
         </div>
       </div>
-      <Body c={c} />
+      <Body c={c} state={state} />
     </li>
   );
 }

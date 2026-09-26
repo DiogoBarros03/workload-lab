@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { PROJECTS, type Project } from "./projects";
-import { dbLoad, deriveStatus, isOutage, loadTone, nextSince, outageMessages, pillsFor, runWarning, type Container } from "./status";
+import { dbLoad, deriveStatus, isOutage, loadTone, nextSince, outageMessages, pillsFor, runWarning, type Container, type Health, type StatusView } from "./status";
 
 const row = (service: Container["service"], up: boolean): Container => ({
   service, up, cpuCores: null, cpuQuotaCores: null, nrThrottled: null, memBytes: null, memMaxBytes: null,
@@ -138,4 +138,23 @@ test("pillsFor is empty for an upcoming project: its containers do not run yet",
   if (!upcoming) throw new Error("no upcoming project");
   expect(upcoming.services.length).toBeGreaterThan(0);
   expect(pillsFor(upcoming, { api: "up", db: "up", loadgen: "up" })).toEqual([]);
+});
+
+const offView = (api: Health, db: Health): StatusView => ({ health: { api, db, loadgen: "up" }, notes: { api: null, db: null, loadgen: null }, reason: null });
+
+test("an off service is not an outage, adds no banner line and no run warning", () => {
+  const v = offView("off", "off");
+  expect(isOutage(v)).toBe(false);
+  expect(outageMessages(v)).toEqual([]);
+  expect(runWarning(v)).toBeNull();
+});
+
+test("a down db behind an off api says the api is off", () => {
+  expect(outageMessages(offView("off", "down"))).toEqual(["db cannot be checked while the api is off."]);
+});
+
+test("pillsFor labels an off service OFF", () => {
+  expect(pillsFor(baseline, { api: "off", db: "up", loadgen: "up" })[0]).toEqual(
+    { service: "api", state: "off", label: "api OFF", ariaLabel: "api is off" },
+  );
 });

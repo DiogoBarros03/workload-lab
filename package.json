@@ -1,0 +1,9 @@
+{
+  "name": "load-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lab": "node lab/operator.mjs",
+    "lab:test": "node --test lab/*.test.mjs"
+  }
+}

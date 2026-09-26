@@ -6,7 +6,9 @@ import { useHashRoute } from "@/hooks/use-hash-route";
 import { useTheme } from "@/hooks/use-theme";
 import { pageTitle } from "@/lib/books";
 import { projectOf } from "@/lib/projects";
+import { useOperator } from "@/hooks/use-operator";
 import { useStatus } from "@/hooks/use-status";
+import { mergeOff } from "@/lib/operator";
 import { isOutage } from "@/lib/status";
 import { BaselinePage } from "@/pages/BaselinePage";
 import { HomePage } from "@/pages/HomePage";
@@ -14,7 +16,10 @@ import { UpcomingPage } from "@/pages/UpcomingPage";
 
 export default function App() {
   const project = projectOf(useHashRoute());
-  const status = useStatus();
+  const raw = useStatus();
+  const operator = useOperator(project !== null && project.services.length > 0);
+  // Every consumer sees operator-stopped services as off, not down.
+  const status = { ...raw, view: { ...raw.view, health: mergeOff(raw.view.health, operator.services) } };
   const theme = useTheme();
   const outage = isOutage(status.view);
   // The tab title carries the outage when the tab is in the background.
@@ -28,7 +33,7 @@ export default function App() {
         <div key={project?.id ?? "home"} className="mx-auto flex max-w-6xl flex-col gap-12 px-4 py-10 sm:px-6 lg:gap-16 lg:py-16">
           <OutageBanner view={status.view} since={status.since} at={status.at} />
           {project === null ? <HomePage />
-            : project.status === "ready" ? <BaselinePage project={project} status={status} />
+            : project.status === "ready" ? <BaselinePage project={project} status={status} operator={operator} />
             : <UpcomingPage project={project} />}
         </div>
       </main>
