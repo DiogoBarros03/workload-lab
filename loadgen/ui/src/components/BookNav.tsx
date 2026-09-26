@@ -1,42 +1,46 @@
-import { firstReadyOf, type Book } from "@/lib/books";
+import type { Book } from "@/lib/books";
 import { CATEGORIES, type Category } from "@/lib/catalog";
-import { hrefOf, type Project } from "@/lib/projects";
+import type { Project } from "@/lib/projects";
+import { bookNodeId, useTreeState, type Tree } from "@/hooks/use-tree-state";
 import { ProjectNav } from "./ProjectNav";
+import { TreeNode } from "./TreeNode";
 
 type NavProps = { active: Project; onNavigate?: () => void };
+type BranchProps = NavProps & { tree: Tree; setOpen: (id: string, open: boolean) => void };
 
-function BookEntry({ book, active, onNavigate }: NavProps & { book: Book }) {
+function BookBranch({ book, tree, setOpen, active, onNavigate }: BranchProps & { book: Book }) {
+  const id = bookNodeId(book);
+  const label = (
+    <span className="flex min-w-0 flex-col">
+      <span className="font-serif text-lg leading-snug text-ink">{book.title}</span>
+      <span className="text-label text-muted-foreground">{book.author}</span>
+    </span>
+  );
   return (
-    <>
-      <a
-        href={hrefOf(firstReadyOf(book))} onClick={onNavigate}
-        className="mb-2 block rounded-md px-3 py-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <span className="block font-serif text-lg leading-snug text-ink">{book.title}</span>
-        <span className="block text-label text-muted-foreground">{book.author}</span>
-      </a>
+    <TreeNode open={tree[id] === true} onToggle={(o) => setOpen(id, o)} label={label} className="ml-3" summaryClassName="items-start [&>svg]:mt-1.5">
       <ProjectNav projects={book.projects} active={active} onNavigate={onNavigate} />
-    </>
+    </TreeNode>
   );
 }
 
-function CategorySection({ category, active, onNavigate }: NavProps & { category: Category }) {
+function CategoryBranch({ category, ...props }: BranchProps & { category: Category }) {
+  const label = <span className="text-label text-muted-foreground">{category.label}</span>;
   return (
-    <>
-      <h2 className="px-3 text-label text-muted-foreground">{category.label}</h2>
+    <TreeNode open={props.tree[category.id] === true} onToggle={(o) => props.setOpen(category.id, o)} label={label}>
       {category.books
-        ? <ul className="mt-2 flex flex-col gap-4">{category.books.map((b) => <li key={b.id}><BookEntry book={b} active={active} onNavigate={onNavigate} /></li>)}</ul>
-        : <p className="mt-1 px-3 text-label text-muted-foreground/70">Nothing here yet</p>}
-    </>
+        ? <ul className="flex flex-col gap-2">{category.books.map((b) => <li key={b.id}><BookBranch book={b} {...props} /></li>)}</ul>
+        : <p className="py-1 pl-9 text-label text-muted-foreground">Nothing here yet</p>}
+    </TreeNode>
   );
 }
 
 // Shared by the desktop sidebar and the mobile sheet.
 export function BookNav({ active, onNavigate }: NavProps) {
+  const [tree, setOpen] = useTreeState(active);
   return (
     <nav aria-label="Library">
-      <ul className="flex flex-col gap-5">
-        {CATEGORIES.map((c) => <li key={c.id}><CategorySection category={c} active={active} onNavigate={onNavigate} /></li>)}
+      <ul className="flex flex-col gap-1">
+        {CATEGORIES.map((c) => <li key={c.id}><CategoryBranch category={c} tree={tree} setOpen={setOpen} active={active} onNavigate={onNavigate} /></li>)}
       </ul>
     </nav>
   );
