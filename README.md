@@ -1,27 +1,56 @@
-# learning — Designing Distributed Systems, by hand
+# Load lab
 
-A lab for working through *Designing Distributed Systems* (Brendan Burns) one pattern at a
-time, on a deliberately small system, with a load test that proves what each step changes.
-Every step ends with a `results/NNN-*.md` file containing real numbers, or it did not happen.
+A place to learn by doing, together. Theory from books, technical decisions, project
+write-ups, class notes, technologies and AI: each one becomes something you can run,
+measure and argue with, kept in one repo so we can all learn from each other's work.
 
-## What this is for
+Reading tells you that a pattern exists. Building it on a deliberately small system, pushing
+load through it and watching where it breaks tells you why it exists and what it costs.
+Every entry here ends with numbers and a written lesson, or it is not done.
 
-To get better at software engineering and architecture by measuring, not reading. The book
-introduces each pattern (sidecar, ambassador, replicated service, sharding, work queue, ...)
-as an answer to a problem. This repo makes the problem visible first, on a baseline that is
-kept small enough to break on a laptop, then applies the pattern and measures again.
+## How it is organised
 
-Containers are resource-limited on purpose (API: 0.5 CPU / 128 MiB, DB: 1 CPU / 256 MiB) so
-that saturation happens at a scale the machine can generate and you can see it happen.
+The browser UI at http://localhost:3200 has a catalogue in its sidebar:
 
-## What is here
+| Category | Holds | Status |
+|---|---|---|
+| **Books** | A book's ideas, one project per chapter, each measured on the shared lab stack | *Designing Distributed Systems* (Brendan Burns), project 000 done, 001–011 planned |
+| **Projects** | Hands-on builds that are not tied to a book: a technical decision, a system, a spike | Empty, waiting for the first one |
+| **Classes** | Notes and exercises from courses, turned into runnable experiments | Empty |
+| **Technologies** | One tool or runtime at a time: what it is for, where it breaks, how it compares | Empty |
+| **AI** | Models, agents, evals and the engineering around them | Empty |
+
+Every entry has the same shape so entries can be compared and read in one sitting:
+
+1. **About**: what runs, why, what to watch. Short.
+2. **Measured**: real runs on the lab stack, with a verdict and a one-line cause per run, and a
+   "Run this" button that reproduces it.
+3. **Learning**: what we learned, the current architecture as a diagram, and its flaws, written
+   as plain prose for someone who was not there.
+
+## Adding an entry
+
+1. Pick the category and write the About text first: if you cannot say what to watch, you are
+   not ready to measure.
+2. Build the smallest thing that makes the question answerable on the lab stack below. Keep the
+   resource limits; they are what make saturation visible on a laptop.
+3. Measure at the same levels as the baseline (1, 100, 1 000, 3 000, 5 000 requests per second,
+   reads and writes) and record the runs in `results/NNN-name.md` plus a `.json` the UI can read.
+4. Write the Learning prose: the idea, what the numbers showed, what the architecture still
+   cannot do. The Measured table carries the numbers; the prose carries the point.
+5. Add the entry to the catalogue in `loadgen/ui/src/lib/` and open a pull request. Review is a
+   conversation about the lesson, not only about the code.
+
+The rest of this file is the technical reference for the shared lab stack every entry runs on.
+
+## The lab stack
 
 | Path | What |
 |---|---|
 | `api/` | Node 24 + Fastify + `pg`. CRUD over a small bookstore: `authors` and their `books`. TypeScript run directly, no build step. |
 | `db/init.sql` | The schema. Constraints (unique ISBN, foreign key, cascade, checks) live in the database, not in the app. |
 | `compose.yaml` | The whole stack: `db`, `api`, `loadgen`, and on-demand services `test`, `loadgen-test` and `k6`. Limits are set here. |
-| `loadgen/` | Load generator with a browser UI on http://localhost:3200. Closed model: fixed concurrency, fixed request count. Own container, no limits, so it never shares the API's quota. |
+| `loadgen/` | Load generator and the catalogue UI on http://localhost:3200. Open model (requests per second for a duration) in the UI, closed model (requests at a fixed concurrency) over HTTP. Own container, no limits, so it never shares the API's quota. |
 | `loadtest/crud.js` | k6 script. Fixed request rate (open model), one iteration = create author, create book, read, update, list, delete author. |
 | `results/` | One markdown file per experiment, raw k6 summaries under `results/raw/`. |
 
@@ -131,7 +160,9 @@ podman exec learning-api-1 cat /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/memory.eve
 `nr_throttled` climbing means the CPU quota is the wall; `memory.events max` climbing means
 the memory limit is. Both were hit at 3000 RPS, see `results/000-baseline.md`.
 
-## Roadmap, in book order
+## Books · Designing Distributed Systems
+
+One project per chapter, in chapter order. Project pages live in the UI under Books.
 
 | Step | Book | Question the step answers |
 |---|---|---|
@@ -148,4 +179,4 @@ the memory limit is. Both were hit at 3000 RPS, see `results/000-baseline.md`.
 | 010 | Ch. 11 Event-driven batch | Chain queues; fan-out, fan-in, filter. |
 | 011 | Ch. 12 Coordinated batch | Join and reduce across workers. |
 
-Each step: one branch, one hypothesis, the same load levels as the baseline, one results file.
+Each project: one branch, one hypothesis, the same load levels as the baseline, one results file.
