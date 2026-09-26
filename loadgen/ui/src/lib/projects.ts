@@ -1,5 +1,6 @@
 export type Project = {
   id: string;
+  bookId: string;
   slug: string;
   title: string;
   chapter: string;
@@ -7,8 +8,9 @@ export type Project = {
   status: "ready" | "upcoming";
 };
 
+// Every project so far belongs to Designing Distributed Systems.
 const p = (id: string, slug: string, title: string, chapter: number, question: string): Project =>
-  ({ id, slug, title, chapter: `Ch. ${chapter}`, question, status: id === "000" ? "ready" : "upcoming" });
+  ({ id, bookId: "dds", slug, title, chapter: `Ch. ${chapter}`, question, status: id === "000" ? "ready" : "upcoming" });
 
 // One project per step of the README roadmap.
 export const PROJECTS: readonly Project[] = [
@@ -26,11 +28,14 @@ export const PROJECTS: readonly Project[] = [
   p("011", "coordinated-batch", "Coordinated batch", 12, "Join and reduce across workers."),
 ];
 
-export const hrefOf = (project: Project) => `#/${project.id}-${project.slug}`;
+export const hrefOf = (project: Project) => `#/${project.bookId}/${project.id}-${project.slug}`;
+// Pre-books form, still resolved so old bookmarks keep working.
+const legacyHrefOf = (project: Project) => `#/${project.id}-${project.slug}`;
 
 const FIRST_READY = PROJECTS.find((x) => x.status === "ready");
 if (!FIRST_READY) throw new Error("the roadmap has no ready project");
 const DEFAULT: Project = FIRST_READY;
 
 // Unknown or empty hashes land on the first ready project.
-export const routeFor = (hash: string): Project => PROJECTS.find((x) => hrefOf(x) === hash) ?? DEFAULT;
+export const routeFor = (hash: string): Project =>
+  PROJECTS.find((x) => hrefOf(x) === hash || legacyHrefOf(x) === hash) ?? DEFAULT;

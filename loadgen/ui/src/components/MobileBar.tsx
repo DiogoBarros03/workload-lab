@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { Project } from "@/lib/projects";
 import { SERVICES, type StatusView } from "@/lib/status";
-import { ProjectNav } from "./ProjectNav";
+import { BookNav } from "./BookNav";
 import { StatusPill } from "./StatusPill";
 import { StatusPills } from "./StatusPills";
 
@@ -26,7 +26,7 @@ export function MobileBar({ active, view }: { active: Project; view: StatusView 
             <SheetTitle className="font-serif text-3xl font-normal text-ink">Load lab</SheetTitle>
             <SheetDescription className="mt-1 text-meta">One API, one database, real limits.</SheetDescription>
           </div>
-          <ProjectNav active={active} onNavigate={() => setOpen(false)} />
+          <BookNav active={active} onNavigate={() => setOpen(false)} />
           <div className="mt-auto px-3"><StatusPills view={view} /></div>
         </SheetContent>
       </Sheet>

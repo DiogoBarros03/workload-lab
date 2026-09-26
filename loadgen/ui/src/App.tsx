@@ -3,6 +3,7 @@ import { MobileBar } from "@/components/MobileBar";
 import { OutageBanner } from "@/components/OutageBanner";
 import { Sidebar } from "@/components/Sidebar";
 import { useHashRoute } from "@/hooks/use-hash-route";
+import { pageTitle } from "@/lib/books";
 import { useStatus } from "@/hooks/use-status";
 import { isOutage } from "@/lib/status";
 import { BaselinePage } from "@/pages/BaselinePage";
@@ -13,7 +14,7 @@ export default function App() {
   const status = useStatus();
   const outage = isOutage(status.view);
   // The tab title carries the outage when the tab is in the background.
-  useEffect(() => { document.title = outage ? "ERROR · Load lab" : "Load lab"; }, [outage]);
+  useEffect(() => { document.title = pageTitle(project, outage); }, [project, outage]);
   return (
     <>
       <Sidebar active={project} view={status.view} />

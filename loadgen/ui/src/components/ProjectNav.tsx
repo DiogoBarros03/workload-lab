@@ -1,7 +1,7 @@
-import { hrefOf, PROJECTS, type Project } from "@/lib/projects";
+import { hrefOf, type Project } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 
-const ITEM = "flex items-baseline gap-3 rounded-md border px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const ITEM = "flex items-baseline gap-3 rounded-md border px-3 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function Body({ p }: { p: Project }) {
   return (
@@ -32,12 +32,11 @@ function Item({ p, active, onNavigate }: { p: Project; active: boolean; onNaviga
   );
 }
 
-export function ProjectNav({ active, onNavigate }: { active: Project; onNavigate?: () => void }) {
+// A book's projects, indented under it with a 1px rule marking the nesting.
+export function ProjectNav({ projects, active, onNavigate }: { projects: readonly Project[]; active: Project; onNavigate?: () => void }) {
   return (
-    <nav aria-label="Projects">
-      <ul className="flex flex-col gap-1">
-        {PROJECTS.map((p) => <li key={p.id}><Item p={p} active={p === active} onNavigate={onNavigate} /></li>)}
-      </ul>
-    </nav>
+    <ul className="ml-3 flex flex-col gap-1 border-l pl-2">
+      {projects.map((p) => <li key={p.id}><Item p={p} active={p === active} onNavigate={onNavigate} /></li>)}
+    </ul>
   );
 }
