@@ -92,7 +92,7 @@ Requires podman with the compose provider (`docker compose` also works as an ali
 rootless socket running once: `systemctl --user enable --now podman.socket`.
 
 ```sh
-podman compose up -d --wait            # db + api + loadgen, api on :3100, loadgen UI on :3200
+podman compose up -d --wait            # db + api + loadgen, api on :3110, loadgen UI on :3200
 podman compose run --rm test           # live test suite against the real Postgres
 podman compose run --rm loadgen-test   # loadgen tests, live against the running api
 RPS=100 podman compose run --rm k6     # load at 100 req/s for 30s, summary in results/raw/rps-100.json
@@ -132,11 +132,11 @@ npm run ui:build       # writes ui/dist; rebuild the loadgen image to ship it
 **1. Talk to it**
 
 ```sh
-curl -s -XPOST localhost:3100/authors -H 'content-type: application/json' -d '{"name":"Ursula K. Le Guin","country":"US"}'
-curl -s -XPOST localhost:3100/books -H 'content-type: application/json' \
+curl -s -XPOST localhost:3110/authors -H 'content-type: application/json' -d '{"name":"Ursula K. Le Guin","country":"US"}'
+curl -s -XPOST localhost:3110/books -H 'content-type: application/json' \
   -d '{"author_id":1,"title":"The Dispossessed","isbn":"9780061054884","price_cents":1299,"stock":3}'
-curl -s localhost:3100/authors/1/books
-curl -s -XDELETE -o /dev/null -w '%{http_code}\n' localhost:3100/authors/1   # cascades to the book
+curl -s localhost:3110/authors/1/books
+curl -s -XDELETE -o /dev/null -w '%{http_code}\n' localhost:3110/authors/1   # cascades to the book
 ```
 
 **2. Find the knee**

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { BOX_H, BOX_Y, edgeLines, layoutNodes, unitsOf } from "./arch";
+import { BOX_H, BOX_Y, edgeLines, edgeRoutes, layoutNodes, unitsOf } from "./arch";
 import type { ArchNode } from "./learning";
 
 const n = (id: string, group?: string): ArchNode => ({ id, label: id, kind: "service", group });
@@ -71,4 +71,22 @@ test("a long edge label widens the gap it sits in", () => {
   const narrow = layoutNodes([n("a"), n("b")], []);
   const wide = layoutNodes([n("a"), n("b")], [{ from: "a", to: "b", label: "a much longer edge label here" }]);
   expect(wide.boxes[1].x - wide.boxes[0].x).toBeGreaterThan(narrow.boxes[1].x - narrow.boxes[0].x);
+});
+
+test("layoutNodes takes a taller box and a minimum width, and the edges follow the box centre", () => {
+  const nodes = [n("a"), n("b")];
+  const edges = [{ from: "a", to: "b" }];
+  const tall = layoutNodes(nodes, edges, { boxH: 112, minBoxW: 240 });
+  for (const b of tall.boxes) expect([b.h, b.w]).toEqual([112, 240]);
+  expect(tall.height - layoutNodes(nodes, edges).height).toBe(112 - BOX_H);
+  expect(edgeLines(tall, edges)[0].y).toBe(tall.boxes[0].y + 56);
+  expect(layoutNodes(NODES, [], { boxH: 112 }).groups[0].h).toBe(112 + 60);
+});
+
+test("edgeRoutes pairs each drawn line with the first edge of its column pair", () => {
+  const layout = layoutNodes(NODES);
+  const edges = [{ from: "lb", to: "a" }, { from: "lb", to: "b" }, { from: "c", to: "db" }];
+  const routes = edgeRoutes(layout, edges);
+  expect(routes.map((r) => r.edge)).toEqual([edges[0], edges[2]]);
+  expect(routes.map((r) => r.line)).toEqual(edgeLines(layout, edges));
 });

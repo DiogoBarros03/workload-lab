@@ -302,3 +302,14 @@
     @apply bg-card font-medium text-ink;
   }
 }
+
+/* Live diagram: dashes march one period per cycle; reduced motion holds them still. */
+@keyframes live-flow {
+  to { stroke-dashoffset: calc(-1 * var(--live-period)); }
+}
+.live-flow {
+  animation: live-flow linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-flow { animation: none; }
+}

@@ -1,7 +1,7 @@
 import { edgeLines, layoutNodes, tagWidth, type Box, type EdgeLine, type GroupBox } from "@/lib/arch";
 import type { ArchKind, Architecture } from "@/lib/learning";
 
-const TAG: Record<ArchKind, { title: string; bg: string; fg: string }> = {
+export const TAG: Record<ArchKind, { title: string; bg: string; fg: string }> = {
   load: { title: "Load", bg: "var(--blue-bg)", fg: "var(--blue-fg)" },
   service: { title: "Service", bg: "var(--green-bg)", fg: "var(--green-fg)" },
   store: { title: "Store", bg: "var(--yellow-bg)", fg: "var(--yellow-fg)" },

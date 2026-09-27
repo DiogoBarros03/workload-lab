@@ -23,7 +23,7 @@ services:
       PORT: "3000"
       PG_POOL_MAX: "10"
     ports:
-      - "3100:3000"
+      - "3110:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
       interval: 2s

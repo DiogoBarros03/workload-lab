@@ -24,7 +24,7 @@ export function HistoryTable({ entries, onClear }: { entries: HistoryEntry[]; on
   return (
     <section aria-labelledby="history-title" className="flex min-w-0 flex-col gap-4">
       <div className="flex items-end justify-between">
-        <h2 id="history-title" className="font-serif text-3xl text-ink">History</h2>
+        <h3 id="history-title" className="font-serif text-2xl font-normal text-ink">History</h3>
         <Button variant="ghost" disabled={entries.length === 0} onClick={onClear}><Trash weight="bold" />Clear</Button>
       </div>
       {entries.length === 0

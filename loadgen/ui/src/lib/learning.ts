@@ -5,8 +5,16 @@ export type ArchKind = "load" | "service" | "store" | "infra";
 export type ArchNode = { id: string; label: string; sub?: string; kind: ArchKind; group?: string };
 export type ArchEdge = { from: string; to: string; label?: string };
 export type Architecture = { summary: string; nodes: ArchNode[]; edges: ArchEdge[] };
-// null lists mean the project is not built, so nothing is measured yet.
-export type Learning = { learned: string[] | null; architecture: Architecture; flaws: string[] | null };
+// null prose means the project is not built, so nothing is measured yet.
+export type Lesson = {
+  story: string[];
+  handsOn: string | null;
+  changed: string[] | null;
+  learned: string[] | null;
+  summary: string[] | null;
+  architecture: Architecture;
+  flaws: string[] | null;
+};
 
 const node = (id: string, label: string, kind: ArchKind, extra: Partial<ArchNode> = {}): ArchNode => ({ id, label, kind, ...extra });
 const chain = (...ids: string[]): ArchEdge[] => ids.slice(1).map((to, i) => ({ from: ids[i], to }));
@@ -19,17 +27,33 @@ const join = (from: ArchNode[], to: string): ArchEdge[] => from.map((n) => ({ fr
 const LOADGEN = node("loadgen", "loadgen", "load");
 const DB = node("db", "db", "store", { sub: "Postgres 16" });
 
-const BASELINE: Learning = {
+const BASELINE: Lesson = {
+  story: [
+    "For most of computing's history an application was one program on one machine. The code, the data and every user's request lived in a single process, and when it got slow the answer was a faster computer. That stopped working for two reasons. The number of people using a popular application outgrew what any one machine could serve, and a single machine failing took the whole application with it.",
+    "So the applications we use every day became distributed systems: their parts run as separate services, often on separate machines, and talk to each other over a network. We do this to handle more work than one machine can, to keep running when a part fails, and to add or remove capacity as demand and budget change. Almost every pattern in this book exists to make one of those three things safer or cheaper.",
+    "Splitting a system into parts is also where the trouble starts. A call over the network can be slow or lost. Two services can disagree about what is true. Every part has its own limit, and the limits interact in ways that are hard to predict from a diagram. Before we apply any pattern it is worth seeing, in numbers, what the simplest possible arrangement can and cannot do.",
+    "That is this project. A bookstore API in one small container and its database in another is already a tiny distributed system: two processes, one network hop, and real limits on CPU, memory and connections. We push traffic through it at increasing rates and watch where it strains. Everything that follows is measured against what we see here.",
+  ],
+  handsOn:
+    "Start the containers, pick reads, writes or a mix, choose a rate, and run. The diagram shows the traffic moving through the system as it happens; the chart underneath tracks throughput and latency; the Measured table holds runs we already recorded so you can reproduce any of them with one click. Watch the API's CPU on reads, the database pool on writes, and memory whenever the queue grows faster than it drains.",
+  changed: [
+    "Compared with a single program that keeps its data in its own memory, this baseline already makes one distributed-systems decision: the API and the database are separate services with a network between them. That buys three things. The two can be given different resources, so the database's memory is not competing with the API's request handling. The API can crash and restart without losing a single row. And either one can be replaced or upgraded without touching the other.",
+    "It also introduces the costs that every later project has to manage. Each request now pays for a network round trip and holds one of a small number of database connections for as long as its query takes. That pool of connections is a new kind of limit: it has nothing to do with CPU or memory, and as the numbers show, it is the first thing that runs out under write load.",
+  ],
+  summary: [
+    "One API container and one database container serve a few thousand reads or a few hundred writes per second before they run out of processor time or connections. Past that point they do not fail cleanly: requests wait and latency climbs to seconds; under write load the backlog fills memory and the kernel kills the process. A bigger box moves that point without removing it.",
+    "The next projects keep this exact workload and change one thing at a time: a sidecar next to the API, an ambassador in front of the database, several API replicas behind a load balancer, a queue between the API and the writes. Each one is a different answer to the same question this baseline leaves open: how do we handle more work with the same or fewer resources?",
+  ],
   learned: [
-    "This project starts with the simplest shape a service can have: one container for the API, one for the database, and nothing between them. It works well while traffic is light. A hundred requests a second barely register, and a thousand still come back in a few milliseconds.",
-    "The trouble begins when users keep arriving. Every request needs a slice of the API's processor time and a turn on one of its ten database connections. Once those are fully used, new requests do not fail; they wait. Waiting requests pile up in memory, each one holding a connection open, until the container runs out of room and the kernel kills it. From the outside the service goes from fast to slow to gone, and the moment it tips over depends on the kind of work: reads exhaust the processor first, writes exhaust the connections first, at only a few hundred writes a second.",
+    "This project starts with the simplest shape a service can have: one container for the API, one for the database, and nothing between them. It works well while traffic is light. A hundred requests a second barely register, and a thousand reads a second still come back in a few milliseconds; a thousand writes a second is already more than the database connections can absorb.",
+    "The trouble begins when users keep arriving. Every request needs a slice of the API's processor time and a turn on one of its ten database connections. Once those are fully used, new requests do not fail; they wait. Each waiting request keeps a socket open and a place in the line for a connection, so memory grows with the backlog. Reads exhaust the processor first and degrade: at five thousand a second the API keeps answering, slowly, and drops a third of the requests. Writes exhaust the connections first, at only a few hundred a second, and their backlog grows until the container runs out of memory and the kernel kills it. From the outside the service goes from fast to slow and, on writes, to gone.",
     "The obvious answer is a bigger box: more CPU, more memory, more connections. It moves the tipping point, but it does not remove it, and it makes every request more expensive whether the system is busy or idle. Growth is not the problem to solve; the shape of the system is.",
     "That is what the rest of this lab is about. Each following project adds one architectural idea from the book, such as running several copies behind a load balancer, moving writes onto a queue, or splitting the data across shards, and measures the same workload again. The goal is to handle more work with fewer resources, so the system stays fast and affordable as it grows, instead of paying for headroom it rarely uses.",
   ],
   architecture: {
     summary: "One synchronous request path. Each request holds a pooled connection for the duration of its query; nothing queues, retries, or sheds load.",
     nodes: [
-      node("loadgen", "loadgen", "load", { sub: "no limits" }),
+      node("loadgen", "loadgen", "load", { sub: "no CPU or memory limit · 10 000 in flight" }),
       node("api", "api", "service", { sub: "Fastify · 0.5 CPU · 128 MiB · pool 10" }),
       node("db", "db", "store", { sub: "Postgres 16 · 1 CPU · 256 MiB" }),
     ],
@@ -74,12 +98,28 @@ const PLANNED: Record<string, Omit<Architecture, "summary">> = {
   },
 };
 
-const upcoming = (p: Project): Learning => {
-  const plan = PLANNED[p.id];
-  if (plan === undefined) throw new Error(`learning: no planned architecture for ${p.id}`);
-  return { learned: null, flaws: null, architecture: { summary: p.question, ...plan } };
+// The opening story of each project not built yet.
+const STORIES: Record<string, string> = {
+  "001": "In [[000]] we saw that a single API container reaches its CPU limit on reads and its connection limit on writes, and that we could only see this because the API reported its own counters. A sidecar is a second container that runs beside the API in the same pod and takes on a concern the API should not have to carry, such as collecting and exposing metrics or logs. This project asks whether we can add that observability without changing the API image at all.",
+  "002": "In [[000]] a slow or unreachable database turned straight into errors for every caller, and in [[001]] we moved observability out of the API. An ambassador goes one step further: a container next to the API that owns the connection to the database, adding retries, timeouts and a circuit breaker on the API's behalf. The question is whether resilience can live outside the application code.",
+  "003": "[[001]] and [[002]] put helper containers beside the API. An adapter uses the same idea to translate: it presents one standard monitoring interface no matter which implementation of the API is running behind it. This project asks whether two different implementations can be measured with exactly the same dashboard.",
+  "004": "[[000]] ended with a single container out of CPU on reads at a few thousand requests per second. The first answer any operator reaches for is more copies: several identical API containers behind a load balancer, each taking a share of the traffic. This project measures whether the read limit moves in proportion to the number of replicas, and what the single database does when several APIs are writing to it at once.",
+  "005": "If [[004]] moved the API's limit, the database becomes the wall. Sharding splits the data by key across several databases so each holds and serves a part of it. This project asks whether that raises the write limit, what it costs in complexity, and what happens to queries that need more than one shard.",
+  "006": "Once data is sharded as in [[005]], some requests need an answer from every shard. Scatter/gather sends the request to all of them and merges the replies. The cost is that the slowest shard sets the latency of the whole request; this project measures that amplification.",
+  "007": "Every project so far kept a container running whether or not traffic arrived. Functions as a service start a process per request and stop it after. This project runs the same bookstore operations as functions and compares cold starts and cost against the always-on baseline of [[000]].",
+  "008": "With several replicas as in [[004]], some jobs must run exactly once: a nightly report, a cleanup. Ownership election lets the replicas agree on which one holds that responsibility, and hand it over when the owner dies. This project builds the election and breaks the owner on purpose.",
+  "009": "[[000]] showed writes queueing for the database pool and taking the whole API down with them. A work queue takes the write off the request path: the API records the job and answers at once, and a worker applies it later. This project measures the latency the caller sees against what durability we give up.",
+  "010": "[[009]] introduced a queue with one worker. Event-driven batch processing chains several: filters, fan-out to many workers, fan-in to one. This project builds a small pipeline on the bookstore data and measures throughput at each stage.",
+  "011": "Where [[010]] streamed events through independent stages, some work needs all workers to reach a point together: join the results, then reduce. This project adds that coordination and measures what the barrier costs.",
 };
 
-export const LEARNING: Record<ProjectId, Learning> = Object.fromEntries(
+const upcoming = (p: Project): Lesson => {
+  const plan = PLANNED[p.id];
+  const story = STORIES[p.id];
+  if (plan === undefined || story === undefined) throw new Error(`lessons: no planned architecture or story for ${p.id}`);
+  return { story: [story], handsOn: null, changed: null, learned: null, summary: null, flaws: null, architecture: { summary: p.question, ...plan } };
+};
+
+export const LESSONS: Record<ProjectId, Lesson> = Object.fromEntries(
   PROJECTS.map((p) => [p.id, p.id === "000" ? BASELINE : upcoming(p)]),
 );
