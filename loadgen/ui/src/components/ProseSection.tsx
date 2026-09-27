@@ -1,19 +1,22 @@
 import { monoDigits } from "@/lib/baseline";
-import { linkRefs } from "@/lib/refs";
+import { inlineParts, type InlinePart } from "@/lib/refs";
 
 function MonoDigits({ text }: { text: string }) {
   return monoDigits(text).map((p, i) => (p.mono ? <span key={i} className="font-mono text-[0.92em]">{p.text}</span> : p.text));
 }
 
-// One paragraph: [[id]] references become links, digits set in mono.
+const LINK = "rounded-sm text-ink underline underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+function Inline({ part }: { part: InlinePart }) {
+  if (part.kind === "link") return <a href={part.href} className={LINK}>{part.text}</a>;
+  if (part.kind === "strong") return <strong className="font-semibold"><MonoDigits text={part.text} /></strong>;
+  if (part.kind === "em") return <em className="italic tracking-normal"><MonoDigits text={part.text} /></em>;
+  return <MonoDigits text={part.text} />;
+}
+
+// One paragraph: [[id]] links, **bold**, _italic_; digits set in mono throughout.
 function Paragraph({ text }: { text: string }) {
-  return (
-    <p>
-      {linkRefs(text).map((part, i) => part.href
-        ? <a key={i} href={part.href} className="rounded-sm text-ink underline underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring">{part.text}</a>
-        : <MonoDigits key={i} text={part.text} />)}
-    </p>
-  );
+  return <p>{inlineParts(text).map((part, i) => <Inline key={i} part={part} />)}</p>;
 }
 
 export function Prose({ paragraphs }: { paragraphs: string[] }) {

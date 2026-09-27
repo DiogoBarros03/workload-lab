@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { linkRefs, refsIn } from "./refs";
+import { inlineParts, linkRefs, refsIn } from "./refs";
 
 test("linkRefs turns known project ids into links and keeps the text around them", () => {
   expect(linkRefs("In [[000]] and [[004]], done.")).toEqual([
@@ -31,4 +31,35 @@ test("linkRefs splits adjacent references into two links", () => {
     { text: "001 Sidecar", href: "#/dds/001-sidecar" },
     { text: " text" },
   ]);
+});
+
+test("inlineParts turns **bold** into strong and _italic_ into em", () => {
+  expect(inlineParts("a **key idea** here")).toEqual([
+    { kind: "text", text: "a " }, { kind: "strong", text: "key idea" }, { kind: "text", text: " here" },
+  ]);
+  expect(inlineParts("_the point_ stands")).toEqual([{ kind: "em", text: "the point" }, { kind: "text", text: " stands" }]);
+});
+
+test("inlineParts handles bold, italic and a link in one paragraph", () => {
+  expect(inlineParts("In [[000]] the **pool** is _the limit_, twice **more**.")).toEqual([
+    { kind: "text", text: "In " },
+    { kind: "link", text: "000 Baseline", href: "#/dds/000-baseline" },
+    { kind: "text", text: " the " },
+    { kind: "strong", text: "pool" },
+    { kind: "text", text: " is " },
+    { kind: "em", text: "the limit" },
+    { kind: "text", text: ", twice " },
+    { kind: "strong", text: "more" },
+    { kind: "text", text: "." },
+  ]);
+});
+
+test("inlineParts leaves underscores inside words and unclosed markers literal", () => {
+  expect(inlineParts("use snake_case and max_pool_size")).toEqual([{ kind: "text", text: "use snake_case and max_pool_size" }]);
+  expect(inlineParts("a **dangling and _open")).toEqual([{ kind: "text", text: "a **dangling and _open" }]);
+  expect(inlineParts("")).toEqual([]);
+});
+
+test("inlineParts closes italics before punctuation", () => {
+  expect(inlineParts("ask _how do we scale?_")).toEqual([{ kind: "text", text: "ask " }, { kind: "em", text: "how do we scale?" }]);
 });

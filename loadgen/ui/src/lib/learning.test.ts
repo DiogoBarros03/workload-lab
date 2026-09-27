@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { unitsOf } from "./arch";
 import { LESSONS, type Lesson } from "./learning";
 import { PROJECTS } from "./projects";
-import { refsIn } from "./refs";
+import { inlineParts, refsIn } from "./refs";
 
 const PROSE = ["story", "changed", "learned", "summary", "flaws"] as const;
 const paragraphs = (l: Lesson) => [...PROSE.flatMap((k) => l[k] ?? []), l.handsOn ?? ""];
@@ -22,7 +22,7 @@ test("every edge joins two existing nodes in adjacent columns, left to right", (
 test("000 tells the whole lecture: story, hands-on, changed, learned, summary, flaws", () => {
   const l = LESSONS["000"];
   expect([l.story.length, l.changed?.length, l.learned?.length, l.summary?.length, l.flaws?.length]).toEqual([4, 2, 4, 2, 3]);
-  expect(l.handsOn).toMatch(/^Start the containers/);
+  expect(l.handsOn).toMatch(/^\*\*Start the containers\*\*/);
   expect(l.architecture.nodes.map((n) => n.id)).toEqual(["loadgen", "api", "db"]);
 });
 
@@ -44,4 +44,17 @@ test("every [[id]] reference points at an existing project", () => {
 
 test("upcoming summaries are the project's own question", () => {
   for (const p of PROJECTS.slice(1)) expect(LESSONS[p.id].architecture.summary).toBe(p.question);
+});
+
+test("emphasis policy: one italic per story, at most two bold and one italic per paragraph, no literal markers", () => {
+  for (const [id, l] of Object.entries(LESSONS)) {
+    for (const p of paragraphs(l).filter((x) => x !== "")) {
+      const parts = inlineParts(p);
+      const count = (kind: string) => parts.filter((x) => x.kind === kind).length;
+      expect([id, count("strong") <= 2, count("em") <= 1], p).toEqual([id, true, true]);
+      expect(parts.some((x) => x.kind === "text" && /\*\*|(^|\W)_|_(\W|$)/.test(x.text)), p).toBe(false);
+    }
+    expect(l.story.flatMap(inlineParts).filter((x) => x.kind === "em").length, id).toBe(l.story.length);
+    expect(l.story.flatMap(inlineParts).some((x) => x.kind === "strong"), id).toBe(true);
+  }
 });
