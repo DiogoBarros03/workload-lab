@@ -1,11 +1,13 @@
 import { expect, test } from "vitest";
+import baselineJson from "../../../../results/000-baseline.json";
 import { unitsOf } from "./arch";
+import { parseBaseline, verdictFor } from "./baseline";
 import { LESSONS, type Lesson } from "./learning";
 import { PROJECTS } from "./projects";
 import { inlineParts, refsIn } from "./refs";
 
 const PROSE = ["story", "changed", "learned", "summary", "flaws"] as const;
-const paragraphs = (l: Lesson) => [...PROSE.flatMap((k) => l[k] ?? []), l.handsOn ?? ""];
+const paragraphs = (l: Lesson) => [...PROSE.flatMap((k) => l[k] ?? []), l.handsOn ?? "", ...l.quick.map((q) => q.note)];
 
 test("every project has a Lesson and no entry is orphaned", () => {
   expect(Object.keys(LESSONS).toSorted()).toEqual(PROJECTS.map((p) => p.id));
@@ -57,4 +59,22 @@ test("emphasis policy: one italic per story, at most two bold and one italic per
     expect(l.story.flatMap(inlineParts).filter((x) => x.kind === "em").length, id).toBe(l.story.length);
     expect(l.story.flatMap(inlineParts).some((x) => x.kind === "strong"), id).toBe(true);
   }
+});
+
+test("000 quick tests: five presets, each matching a measured run, notes as short prose", () => {
+  const quick = LESSONS["000"].quick;
+  const baseline = parseBaseline(baselineJson);
+  expect(quick.map((q) => [q.label, q.op, q.rps, q.durationSec])).toEqual([
+    ["Read 1 000", "read", 1000, 20], ["Write 1 000", "write", 1000, 20], ["Mixed 1 000", "mixed", 1000, 20],
+    ["Read 5 000", "read", 5000, 20], ["Write 3 000", "write", 3000, 20],
+  ]);
+  expect(quick.map((q) => verdictFor(q, baseline))).toEqual(["ok", "degraded", "ok", "failed", "failed"]);
+  for (const q of quick) {
+    expect(q.note, q.label).not.toMatch(/^\s*[-*•]\s|\n/m);
+    expect(refsIn(q.note).length, q.label).toBeLessThanOrEqual(1);
+  }
+});
+
+test("upcoming projects have no quick tests yet", () => {
+  for (const p of PROJECTS.slice(1)) expect(LESSONS[p.id].quick).toEqual([]);
 });

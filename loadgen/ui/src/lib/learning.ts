@@ -1,10 +1,13 @@
 import { PROJECTS, type Project } from "./projects";
+import type { Op } from "./run";
 
 export type ProjectId = Project["id"];
 export type ArchKind = "load" | "service" | "store" | "infra";
 export type ArchNode = { id: string; label: string; sub?: string; kind: ArchKind; group?: string };
 export type ArchEdge = { from: string; to: string; label?: string };
 export type Architecture = { summary: string; nodes: ArchNode[]; edges: ArchEdge[] };
+// A one-click preset run; the note is one line of prose that links onward.
+export type QuickTest = { label: string; op: Op; rps: number; durationSec: number; note: string };
 // null prose means the project is not built, so nothing is measured yet.
 export type Lesson = {
   story: string[];
@@ -14,6 +17,7 @@ export type Lesson = {
   summary: string[] | null;
   architecture: Architecture;
   flaws: string[] | null;
+  quick: QuickTest[];
 };
 
 const node = (id: string, label: string, kind: ArchKind, extra: Partial<ArchNode> = {}): ArchNode => ({ id, label, kind, ...extra });
@@ -28,6 +32,13 @@ const LOADGEN = node("loadgen", "loadgen", "load");
 const DB = node("db", "db", "store", { sub: "Postgres 16" });
 
 const BASELINE: Lesson = {
+  quick: [
+    { label: "Read 1 000", op: "read", rps: 1000, durationSec: 20, note: "Comfortable. The API uses a quarter of its CPU quota." },
+    { label: "Write 1 000", op: "write", rps: 1000, durationSec: 20, note: "Degraded. The **connection pool** fills and requests queue; [[009]] moves writes off the request path." },
+    { label: "Mixed 1 000", op: "mixed", rps: 1000, durationSec: 20, note: "Comfortable. Half reads, half writes." },
+    { label: "Read 5 000", op: "read", rps: 5000, durationSec: 20, note: "Fails. **CPU quota** and **memory** both reach their limits; [[004]] adds replicas." },
+    { label: "Write 3 000", op: "write", rps: 3000, durationSec: 20, note: "Fails. The backlog fills memory and the API is killed; it restarts on its own." },
+  ],
   story: [
     "For most of computing's history an application was **one program on one machine**. The code, the data and every user's request lived in a single process, and when it got slow _the answer was a faster computer_. That stopped working for two reasons. The number of people using a popular application outgrew what any one machine could serve, and a single machine failing took the whole application with it.",
     "So the applications we use every day became **distributed systems**: their parts run as separate services, often on separate machines, and talk to each other over a network. We do this to handle _more work than one machine can_, to keep running when a part fails, and to add or remove capacity as demand and budget change. Almost every pattern in this book exists to make one of those three things safer or cheaper.",
@@ -117,7 +128,7 @@ const upcoming = (p: Project): Lesson => {
   const plan = PLANNED[p.id];
   const story = STORIES[p.id];
   if (plan === undefined || story === undefined) throw new Error(`lessons: no planned architecture or story for ${p.id}`);
-  return { story: [story], handsOn: null, changed: null, learned: null, summary: null, flaws: null, architecture: { summary: p.question, ...plan } };
+  return { story: [story], handsOn: null, changed: null, learned: null, summary: null, flaws: null, quick: [], architecture: { summary: p.question, ...plan } };
 };
 
 export const LESSONS: Record<ProjectId, Lesson> = Object.fromEntries(

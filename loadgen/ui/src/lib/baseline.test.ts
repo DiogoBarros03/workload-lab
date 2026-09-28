@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import {
-  detailLine, failedCount, groupRuns, monoDigits, oomKilled, parseBaseline, runPresetFrom, shortfallPct, verdictTone, type Run,
+  detailLine, failedCount, groupRuns, monoDigits, oomKilled, parseBaseline, runPresetFrom, shortfallPct, verdictFor, verdictTone, type Run,
 } from "./baseline";
 
 const run = (over: Partial<Run> = {}): Run => ({
@@ -100,4 +100,12 @@ test("detailLine appends dropped and errors only when something failed", () => {
   expect(detailLine(run({ ...quiet, maxInFlight: 10000, p50: 9545.2, errors: 24437 }), 0.5)).toBe(
     "Peak CPU 0.26 / 0.50 cores · Throttled 0 · Pool waiting 10 · Max in flight 10\u2009000 · p50 9\u2009545 ms · Dropped 0 · Errors 24\u2009437",
   );
+});
+
+test("verdictFor returns the verdict of the measured run with the same op and target", () => {
+  const b = parseBaseline(doc({ runs: [run({ op: "read", targetRps: 1000, verdict: "ok" }), run({ op: "write", targetRps: 1000, verdict: "degraded" })] }));
+  expect(verdictFor({ op: "write", rps: 1000 }, b)).toBe("degraded");
+  expect(verdictFor({ op: "read", rps: 1000 }, b)).toBe("ok");
+  expect(verdictFor({ op: "read", rps: 4000 }, b)).toBeNull();
+  expect(verdictFor({ op: "mixed", rps: 1000 }, b)).toBeNull();
 });

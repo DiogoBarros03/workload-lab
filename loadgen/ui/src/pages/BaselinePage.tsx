@@ -8,6 +8,7 @@ import { LiveCard } from "@/components/LiveCard";
 import { MeasuredCard } from "@/components/MeasuredCard";
 import { ProjectHeader } from "@/components/ProjectHeader";
 import { Prose, ProseSection, Section } from "@/components/ProseSection";
+import { QuickTests } from "@/components/QuickTests";
 import { ResultCard } from "@/components/ResultCard";
 import { RunCard } from "@/components/RunCard";
 import { SummarySection } from "@/components/SummarySection";
@@ -16,7 +17,7 @@ import type { Operator } from "@/hooks/use-operator";
 import { useRun } from "@/hooks/use-run";
 import type { StatusState } from "@/hooks/use-status";
 import { parseBaseline, runPresetFrom, type Run } from "@/lib/baseline";
-import { LESSONS, type Lesson } from "@/lib/learning";
+import { LESSONS, type Lesson, type QuickTest } from "@/lib/learning";
 import { controllable } from "@/lib/operator";
 import type { Project } from "@/lib/projects";
 import { INITIAL_FORM, type RunForm } from "@/lib/run";
@@ -44,6 +45,10 @@ export function BaselinePage({ project, status, operator }: { project: Project; 
     document.getElementById("run-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
     runButton.current?.focus({ preventScroll: true });
   };
+  const quickRun = (q: QuickTest) => {
+    setForm({ op: q.op, rps: String(q.rps), duration: String(q.durationSec) });
+    void start({ mode: "open", op: q.op, rps: q.rps, durationSec: q.durationSec });
+  };
   const lesson = LESSONS[project.id];
   const { handsOn, changed, learned } = built(lesson);
   return (
@@ -59,13 +64,16 @@ export function BaselinePage({ project, status, operator }: { project: Project; 
           <RunCard
             form={form} onForm={setForm} runRef={runButton} className="lg:col-span-2"
             running={running} warning={runWarning(status.view)} onRun={start} onStop={stop} blocked={blocked}
-            control={<ContainersControl operator={operator} services={services} running={running} />}
+            control={<>
+              <ContainersControl operator={operator} services={services} running={running} />
+              <QuickTests quick={lesson.quick} baseline={BASELINE} disabled={running || blocked} onRun={quickRun} />
+            </>}
           />
           <ContainersCard status={status} className="min-w-0 lg:col-span-3" />
         </div>
         <LiveCard run={run} />
         <ResultCard result={run.result} />
-        <MeasuredCard baseline={BASELINE} running={running} onRun={runThis} />
+        <MeasuredCard baseline={BASELINE} quick={lesson.quick} running={running} onRun={runThis} />
         <HistoryTable entries={history.entries} onClear={history.clear} />
       </Section>
       <ProseSection id="changed" title="What We Changed" paragraphs={changed} />

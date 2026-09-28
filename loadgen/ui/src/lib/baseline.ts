@@ -93,6 +93,10 @@ export function detailLine(r: Run, cpuQuota?: number): string {
   return [...parts, ...failed].join(" · ");
 }
 
+// The measured verdict for a preset, or null when that op and rate were never measured.
+export const verdictFor = (q: { op: Op; rps: number }, b: Baseline): Verdict | null =>
+  b.runs.find((r) => r.op === q.op && r.targetRps === q.rps)?.verdict ?? null;
+
 export const runPresetFrom = (r: Run, durationSec: number) => ({ op: r.op, rps: r.targetRps, durationSec });
 
 // Digit runs not glued to a word (so "p99" stays text), with thousands groups and decimals.

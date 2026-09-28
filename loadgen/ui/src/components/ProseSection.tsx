@@ -14,10 +14,10 @@ function Inline({ part }: { part: InlinePart }) {
   return <MonoDigits text={part.text} />;
 }
 
-// One paragraph: [[id]] links, **bold**, _italic_; digits set in mono throughout.
-function Paragraph({ text }: { text: string }) {
-  return <p>{inlineParts(text).map((part, i) => <Inline key={i} part={part} />)}</p>;
-}
+// Inline text: [[id]] links, **bold**, _italic_; digits set in mono throughout.
+export const RichText = ({ text }: { text: string }) => inlineParts(text).map((part, i) => <Inline key={i} part={part} />);
+
+const Paragraph = ({ text }: { text: string }) => <p><RichText text={text} /></p>;
 
 export function Prose({ paragraphs }: { paragraphs: string[] }) {
   return <div className="flex max-w-prose flex-col gap-4">{paragraphs.map((p) => <Paragraph key={p} text={p} />)}</div>;

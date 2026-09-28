@@ -6,7 +6,6 @@ import type { RunConfig, RunForm } from "@/lib/run";
 import { NumberField } from "./NumberField";
 import { Notice } from "./Notice";
 import { OpTabs } from "./OpTabs";
-import { Presets, type Preset } from "./Presets";
 import { RunActions } from "./RunActions";
 
 const MAX_RPS = 5000;
@@ -33,7 +32,6 @@ export function RunCard({ form, onForm, runRef, running, warning, onRun, onStop,
     e.preventDefault();
     if (valid && !running) onRun({ mode: "open", op, rps: +rps, durationSec: +duration });
   };
-  const pick = (p: Preset) => set({ rps: String(p.rps), duration: String(p.durationSec) });
   return (
     <Card id="run-card" className={cn("scroll-mt-6", className)}>
       <CardHeader><CardTitle>Run</CardTitle></CardHeader>
@@ -46,7 +44,6 @@ export function RunCard({ form, onForm, runRef, running, warning, onRun, onStop,
             id="duration" label="Duration" unit="s" scale="linear"
             value={duration} max={MAX_DURATION_SEC} disabled={running} onChange={(v) => set({ duration: v })}
           />
-          <Presets disabled={running} onPick={pick} />
           <RunActions runRef={runRef} running={running} valid={valid} resetBusy={reset.busy} onStop={onStop} onReset={reset.reset} />
           <Warning blocked={blocked} warning={warning} />
           <Notice error={reset.error} note={reset.note} />
