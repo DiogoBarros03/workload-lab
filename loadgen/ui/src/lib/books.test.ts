@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { BOOKS, bookOf, breadcrumbOf, pageTitle } from "./books";
+import { BOOKS, bookOf, breadcrumbOf, neighboursOf, pageTitle } from "./books";
 import { PROJECTS } from "./projects";
 
 test("one book, Designing Distributed Systems, holds all twelve projects in order", () => {
@@ -28,4 +28,23 @@ test("pageTitle joins project, book and app, with the outage prefix", () => {
 test("pageTitle at home is the app name, with the outage prefix", () => {
   expect(pageTitle(null, false)).toBe("Load lab");
   expect(pageTitle(null, true)).toBe("ERROR · Load lab");
+});
+
+const ids = (n: ReturnType<typeof neighboursOf>) => [n.prev?.id ?? null, n.next?.id ?? null];
+
+test("neighboursOf the first project has no previous", () => {
+  expect(ids(neighboursOf(PROJECTS[0]))).toEqual([null, "001"]);
+});
+
+test("neighboursOf a middle project are the ones either side in book order", () => {
+  expect(ids(neighboursOf(PROJECTS[1]))).toEqual(["000", "002"]);
+  expect(ids(neighboursOf(PROJECTS[6]))).toEqual(["005", "007"]);
+});
+
+test("neighboursOf the last project has no next", () => {
+  expect(ids(neighboursOf(PROJECTS[11]))).toEqual(["010", null]);
+});
+
+test("neighboursOf throws for a project its book does not list", () => {
+  expect(() => neighboursOf({ ...PROJECTS[3] })).toThrow(/003/);
 });

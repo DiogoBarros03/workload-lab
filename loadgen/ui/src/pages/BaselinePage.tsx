@@ -5,6 +5,7 @@ import { HistoryTable } from "@/components/HistoryTable";
 import { LiveArchDiagram } from "@/components/LiveArchDiagram";
 import { LiveCard } from "@/components/LiveCard";
 import { MeasuredCard } from "@/components/MeasuredCard";
+import { PathNav } from "@/components/PathNav";
 import { ProjectHeader } from "@/components/ProjectHeader";
 import { Prose, ProseSection, Section } from "@/components/ProseSection";
 import { QuickTests } from "@/components/QuickTests";
@@ -77,6 +78,7 @@ export function BaselinePage({ project, status, operator }: { project: Project; 
       <ProseSection id="changed" title="What We Changed" paragraphs={changed} />
       <ProseSection id="learned" title="What We Learned" paragraphs={learned} />
       <SummarySection lesson={lesson} />
+      <PathNav project={project} />
     </>
   );
 }

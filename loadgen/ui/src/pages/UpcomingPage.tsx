@@ -1,3 +1,4 @@
+import { PathNav } from "@/components/PathNav";
 import { ProjectHeader } from "@/components/ProjectHeader";
 import { ProseSection } from "@/components/ProseSection";
 import { SummarySection } from "@/components/SummarySection";
@@ -12,6 +13,7 @@ export function UpcomingPage({ project }: { project: Project }) {
       <ProseSection id="story" title="The Story So Far" paragraphs={lesson.story} />
       <p className="max-w-prose text-muted-foreground">Hands-on, findings and summary arrive when this project is built.</p>
       <SummarySection lesson={lesson} />
+      <PathNav project={project} />
     </>
   );
 }
