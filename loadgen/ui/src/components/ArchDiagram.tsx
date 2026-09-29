@@ -25,7 +25,7 @@ function NodeBox({ b }: { b: Box }) {
   );
 }
 
-function Group({ g }: { g: GroupBox }) {
+export function Group({ g }: { g: GroupBox }) {
   return (
     <g>
       <rect x={g.x + 0.5} y={g.y + 0.5} width={g.w - 1} height={g.h - 1} rx={8} fill="none" stroke={MUTED} strokeDasharray="4 4" />

@@ -6,8 +6,8 @@ import { loadTone, SERVICES, type Container, type CpuSample, type DbSample, type
 export type LiveStatus = { containers: Container[] | null; apiCpu: CpuSample[]; dbLoad: DbSample[]; health: Record<Service, Health> };
 export type EdgeFlow = { width: number; gap: number; durationSec: number; active: boolean };
 export type NodeReadout = {
-  busy: number | null; busyLabel: string; p99: number | null; waiting: number | null; waitingLabel: string;
-  errPerSec: number | null; tone: LoadTone; health: Health; sparkline: number[];
+  busy: number | null; busyLabel: string; busyTitle: string; p99: number | null; waiting: number | null; waitingLabel: string;
+  waitingValue: string; errPerSec: number | null; tone: LoadTone; health: Health; sparkline: number[];
 };
 export type EdgeReadout = { rps: number; label: string; danger: boolean };
 
@@ -48,7 +48,10 @@ function normalise(values: number[]): number[] {
 // Last 60 s of 500 ms points, every other one so the newest is kept.
 const lastMinute = <T,>(points: T[]) => points.slice(-120).filter((_, i, a) => (a.length - 1 - i) % 2 === 0);
 
-type Parts = Pick<NodeReadout, "busy" | "p99" | "waiting" | "waitingLabel" | "errPerSec" | "sparkline">;
+type Parts = Pick<NodeReadout, "busy" | "p99" | "waiting" | "waitingLabel" | "errPerSec" | "sparkline"> &
+  Partial<Pick<NodeReadout, "busyTitle" | "waitingValue">>;
+
+const apiCpuLine = (s: LiveStatus) => s.apiCpu.flatMap((x) => (x.quota ? [x.cores / x.quota] : []));
 
 function apiParts(run: RunState, s: LiveStatus): Parts {
   const c = rowOf(s, "api");
@@ -57,7 +60,17 @@ function apiParts(run: RunState, s: LiveStatus): Parts {
   return {
     busy: ratios.length ? Math.max(...ratios) : null, p99: w?.p99 ?? null, waiting: run.progress?.inFlight ?? null,
     waitingLabel: "In Flight", errPerSec: w ? w.errors / WINDOW_SEC : null,
-    sparkline: s.apiCpu.flatMap((x) => (x.quota ? [x.cores / x.quota] : [])),
+    sparkline: apiCpuLine(s),
+  };
+}
+
+// The api's cpu over quota as the sidecar reads it from /proc; nothing when the api reports itself.
+function sidecarParts(s: LiveStatus): Parts {
+  const c = rowOf(s, "api");
+  const seen = c?.observer === "sidecar";
+  return {
+    busy: seen ? ratio(c.cpuCores, c.cpuQuotaCores) : null, busyTitle: "Sees", p99: null, waiting: null,
+    waitingLabel: "Observer", waitingValue: "/proc", errPerSec: null, sparkline: seen ? apiCpuLine(s) : [],
   };
 }
 
@@ -82,17 +95,19 @@ const UNKNOWN: Parts = { busy: null, p99: null, waiting: null, waitingLabel: "Wa
 function partsOf(id: string, run: RunState, s: LiveStatus): Parts {
   if (id === "api") return apiParts(run, s);
   if (id === "db") return dbParts(s);
+  if (id === "sidecar") return sidecarParts(s);
   return id === "loadgen" ? loadgenParts(run) : UNKNOWN;
 }
 
 const isService = (id: string): id is Service => (SERVICES as readonly string[]).includes(id);
 
-// One node's live numbers; nodes outside the lab's three services read as unknown.
+// One node's live numbers; nodes outside the lab's services read as unknown.
 export function nodeReadout(id: string, run: RunState, s: LiveStatus): NodeReadout {
   const parts = partsOf(id, run, s);
   const health = isService(id) ? s.health[id] : "unknown";
   const failing = health === "down" || (parts.errPerSec ?? 0) > 0;
   return {
+    busyTitle: "Busy", waitingValue: parts.waiting === null ? "—" : fmtInt(parts.waiting),
     ...parts, busyLabel: parts.busy === null ? "—" : `${Math.round(parts.busy * 100)} %`,
     tone: failing ? "hot" : loadTone(parts.busy), health,
   };

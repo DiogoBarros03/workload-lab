@@ -44,6 +44,10 @@ services:
       dockerfile: loadgen/Dockerfile
     environment:
       BASE_URL: http://api:3000
+      TARGETS: >-
+        {"compose": {"base": "http://api:3000", "stats": "http://api:3000/stats"},
+        "k8s": {"base": "http://host.containers.internal:31000", "stats": "http://host.containers.internal:31000/stats"},
+        "k8s-sidecar": {"base": "http://host.containers.internal:31000", "stats": "http://host.containers.internal:31001/stats"}}
       PORT: "3200"
     ports:
       - "3200:3200"

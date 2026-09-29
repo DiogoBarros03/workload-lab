@@ -1,6 +1,6 @@
 import { CaretRight } from "@phosphor-icons/react";
 import { useState } from "react";
-import { groupRuns, type Baseline, type Run } from "@/lib/baseline";
+import { groupRuns, measuredCaption, type Baseline, type Run } from "@/lib/baseline";
 import type { QuickTest } from "@/lib/learning";
 import { cn } from "@/lib/utils";
 import { MeasuredList } from "./MeasuredList";
@@ -16,7 +16,8 @@ const INTRO =
 const SUMMARY =
   "flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-6 py-4 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden";
 
-type Props = { baseline: Baseline; quick: QuickTest[]; running: boolean; onRun: (r: Run) => void };
+// footnote closes the block, e.g. the same runs repeated on another platform.
+type Props = { baseline: Baseline; quick: QuickTest[]; footnote: string | null; running: boolean; onRun: (r: Run) => void };
 
 function MeasuredTable({ runs, cpuQuota, running, onRun }: { runs: Run[]; cpuQuota: number; running: boolean; onRun: (r: Run) => void }) {
   return (
@@ -60,7 +61,8 @@ const QuickNotes = ({ quick }: { quick: QuickTest[] }) => (
   </dl>
 );
 
-export function MeasuredCard({ baseline: { measuredAt, setup, runs }, quick, running, onRun }: Props) {
+export function MeasuredCard({ baseline, quick, footnote, running, onRun }: Props) {
+  const { measuredAt, setup, runs } = baseline;
   const [open, setOpen] = useStoredOpen();
   const shared = { runs, running, onRun };
   return (
@@ -73,11 +75,10 @@ export function MeasuredCard({ baseline: { measuredAt, setup, runs }, quick, run
       <div className="flex flex-col gap-6 px-6 pt-2 pb-6">
         <Prose paragraphs={[INTRO]} />
         <QuickNotes quick={quick} />
-        <p className="font-mono text-label text-muted-foreground">
-          {setup.durationSec} s per run · API {setup.apiCpu} CPU / {setup.apiMemMiB} MiB / pool {setup.poolMax}
-        </p>
+        <p className="font-mono text-label text-muted-foreground">{measuredCaption(baseline)}</p>
         <MeasuredTable {...shared} cpuQuota={setup.apiCpu} />
         <MeasuredList {...shared} />
+        {footnote !== null && <Prose paragraphs={[footnote]} />}
       </div>
     </details>
   );

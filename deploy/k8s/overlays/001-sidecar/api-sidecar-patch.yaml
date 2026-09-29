@@ -1,0 +1,45 @@
+# Adds stats-sidecar beside api; shareProcessNamespace lets it read the api's /proc entries.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      shareProcessNamespace: true
+      containers:
+        # Listed first so api stays the default container for logs and exec.
+        - name: api
+        - name: stats-sidecar
+          image: lab-sidecar:001
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "3001"
+            - name: API_MATCH
+              value: src/server.ts
+            - name: LIMIT_CPU_MILLI
+              valueFrom:
+                resourceFieldRef: {containerName: api, resource: limits.cpu, divisor: 1m}
+            - name: LIMIT_MEM_BYTES
+              valueFrom:
+                resourceFieldRef: {containerName: api, resource: limits.memory}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: {name: db-credentials, key: POSTGRES_USER}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: db-credentials, key: POSTGRES_PASSWORD}
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef: {name: db-credentials, key: POSTGRES_DB}
+            - name: DATABASE_URL
+              value: postgres://$(DB_USER):$(DB_PASSWORD)@db:5432/$(DB_NAME)
+          ports:
+            - containerPort: 3001
+          readinessProbe:
+            httpGet: {path: /health, port: 3001}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: 100m, memory: 64Mi}

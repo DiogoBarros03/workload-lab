@@ -7,10 +7,10 @@ import { HomeLink } from "./HomeLink";
 import { ProjectNav } from "./ProjectNav";
 import { TreeNode } from "./TreeNode";
 
-type NavProps = { active: Project | null; health: Record<Service, Health>; onNavigate?: () => void };
+type NavProps = { active: Project | null; liveId: string | null; health: Record<Service, Health>; onNavigate?: () => void };
 type BranchProps = NavProps & { tree: Tree; setOpen: (id: string, open: boolean) => void };
 
-function BookBranch({ book, tree, setOpen, active, health, onNavigate }: BranchProps & { book: Book }) {
+function BookBranch({ book, tree, setOpen, active, liveId, health, onNavigate }: BranchProps & { book: Book }) {
   const id = bookNodeId(book);
   const label = (
     <span className="flex min-w-0 flex-col">
@@ -20,7 +20,7 @@ function BookBranch({ book, tree, setOpen, active, health, onNavigate }: BranchP
   );
   return (
     <TreeNode open={tree[id] === true} onToggle={(o) => setOpen(id, o)} label={label} className="ml-3" summaryClassName="items-start [&>svg]:mt-1.5">
-      <ProjectNav projects={book.projects} active={active} health={health} onNavigate={onNavigate} />
+      <ProjectNav projects={book.projects} active={active} liveId={liveId} health={health} onNavigate={onNavigate} />
     </TreeNode>
   );
 }
@@ -37,13 +37,13 @@ function CategoryBranch({ category, ...props }: BranchProps & { category: Catego
 }
 
 // Shared by the desktop sidebar and the mobile sheet.
-export function BookNav({ active, health, onNavigate }: NavProps) {
+export function BookNav({ active, liveId, health, onNavigate }: NavProps) {
   const [tree, setOpen] = useTreeState(active);
   return (
     <nav aria-label="Library" className="flex flex-col gap-1">
       <HomeLink active={active === null} onNavigate={onNavigate} />
       <ul className="flex flex-col gap-1">
-        {CATEGORIES.map((c) => <li key={c.id}><CategoryBranch category={c} tree={tree} setOpen={setOpen} active={active} health={health} onNavigate={onNavigate} /></li>)}
+        {CATEGORIES.map((c) => <li key={c.id}><CategoryBranch category={c} tree={tree} setOpen={setOpen} active={active} liveId={liveId} health={health} onNavigate={onNavigate} /></li>)}
       </ul>
     </nav>
   );

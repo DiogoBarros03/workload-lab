@@ -9,9 +9,9 @@ import { BookNav } from "./BookNav";
 import { ServicePill } from "./ServicePill";
 import { ThemeToggle } from "./ThemeToggle";
 
-type Props = { active: Project | null; view: StatusView; theme: ReturnType<typeof useTheme> };
+type Props = { active: Project | null; liveId: string | null; view: StatusView; theme: ReturnType<typeof useTheme> };
 
-export function MobileBar({ active, view, theme }: Props) {
+export function MobileBar({ active, liveId, view, theme }: Props) {
   const [open, setOpen] = useState(false);
   const alerts = (active ? pillsFor(active, view.health) : []).filter((x) => x.state === "slow" || x.state === "down");
   return (
@@ -31,7 +31,7 @@ export function MobileBar({ active, view, theme }: Props) {
             <SheetTitle className="font-serif text-3xl font-normal text-ink">Load lab</SheetTitle>
             <SheetDescription className="mt-1 text-meta">One API, one database, real limits.</SheetDescription>
           </div>
-          <BookNav active={active} health={view.health} onNavigate={() => setOpen(false)} />
+          <BookNav active={active} liveId={liveId} health={view.health} onNavigate={() => setOpen(false)} />
         </SheetContent>
       </Sheet>
     </header>

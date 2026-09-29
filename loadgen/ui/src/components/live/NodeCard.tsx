@@ -1,6 +1,6 @@
 import { tagWidth, type Box } from "@/lib/arch";
 import type { NodeReadout } from "@/lib/live";
-import { fmtInt, fmtMs } from "@/lib/format";
+import { fmtMs } from "@/lib/format";
 import type { Health } from "@/lib/status";
 import { TAG } from "../ArchDiagram";
 import { Meter } from "./Meter";
@@ -26,11 +26,11 @@ function Chip({ x, y, text, bg, fg }: { x: number; y: number; text: string; bg: 
   );
 }
 
-function Cell({ x, y, label, value, end }: { x: number; y: number; label: string; value: string; end?: boolean }) {
-  return <text x={x} y={y} textAnchor={end ? "end" : "start"} style={MONO}><tspan fill={MUTED}>{label}</tspan><tspan dx={6} fill="var(--ink)">{value}</tspan></text>;
+function Cell({ x, y, label, value }: { x: number; y: number; label: string; value: string }) {
+  return <text x={x} y={y} style={MONO}><tspan fill={MUTED}>{label}</tspan><tspan dx={6} fill="var(--ink)">{value}</tspan></text>;
 }
 
-// One node: kind, name, health, busy %, p99 and queue cells, a 60 s line and a load meter.
+// One node: kind, name, health, busy %, 60 s line, p99 and queue lines, load meter.
 export function NodeCard({ b, r }: { b: Box; r: NodeReadout }) {
   const pill = PILL[r.health];
   const hot = r.tone === "hot";
@@ -42,11 +42,11 @@ export function NodeCard({ b, r }: { b: Box; r: NodeReadout }) {
       <text x={b.x + 16} y={b.y + 32} fill="var(--ink)" style={{ fontFamily: "var(--font-sans)", fontSize: 15 }}>{b.node.label}</text>
       <text x={b.x + 16} y={b.y + 64}>
         <tspan fill={r.busy === null ? MUTED : "var(--ink)"} style={{ fontFamily: "var(--font-mono)", fontSize: 24 }}>{r.busyLabel}</tspan>
-        <tspan dx={8} fill={MUTED} style={{ fontFamily: "var(--font-sans)", fontSize: 13 }}>Busy</tspan>
+        <tspan dx={8} fill={MUTED} style={{ fontFamily: "var(--font-sans)", fontSize: 13 }}>{r.busyTitle}</tspan>
       </text>
       <Sparkline x={b.x + b.w - 16 - 64} y={b.y + 46} values={r.sparkline} />
       <Cell x={b.x + 16} y={b.y + 88} label="p99" value={r.p99 === null ? "—" : `${fmtMs(r.p99)} ms`} />
-      <Cell end x={b.x + b.w - 16} y={b.y + 88} label={r.waitingLabel} value={r.waiting === null ? "—" : fmtInt(r.waiting)} />
+      <Cell x={b.x + 16} y={b.y + 106} label={r.waitingLabel} value={r.waitingValue} />
       <Meter x={b.x + 16} y={b.y + b.h - 14} w={b.w - 32} ratio={r.busy} tone={r.tone} />
     </g>
   );

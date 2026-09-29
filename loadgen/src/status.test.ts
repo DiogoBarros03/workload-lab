@@ -8,7 +8,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseCpuMax, parseCpuStat, parseMemMax, readCgroup } from "./cgroup.ts";
-import { buildStatus, classifyProbeError, createStatusSampler, nextPrev, type ApiProbe, type ApiStats, type DbLoad, type Prev } from "./status.ts";
+import { buildStatus, classifyProbeError, createStatusSampler, nextPrev, type ApiProbe, type ApiStats, type DbLoad, type HealthProbe, type Prev } from "./status.ts";
 
 test("cpu.max parses a quota to cores, and 'max' or garbage to null", () => {
   assert.equal(parseCpuMax("50000 100000\n"), 0.5);
@@ -68,7 +68,7 @@ const noDb = {
 const up = { state: "up", up: true, reason: null };
 const okProbe = (stats: ApiStats, health = 200): ApiProbe => ({ ok: true, health, stats });
 const failed = (kind: "timeout" | "refused" | "http" | "dns", detail = "x"): ApiProbe => ({ ok: false, kind, detail });
-const fresh: Prev = Object.freeze({ api: null, loadgen: null, lastApiOkAt: null });
+const fresh: Prev = Object.freeze({ api: null, loadgen: null, lastApiOkAt: null, lastSidecarOkAt: null });
 const NOW = 1_000_000;
 const byName = (s: ReturnType<typeof buildStatus>) =>
   Object.fromEntries(s.containers.map((c) => [c.service, c]));
@@ -94,6 +94,7 @@ test("second sample: cores = usage delta over wall delta", () => {
     api: sample({ cpuUsageUsec: 1_000_000, sampledAtMs: 10_000 }),
     loadgen: sample({ cpuUsageUsec: 500, sampledAtMs: 20_000 }),
     lastApiOkAt: NOW - 2000,
+    lastSidecarOkAt: null,
   });
   const s = status(okProbe(sample({ cpuUsageUsec: 1_960_000, sampledAtMs: 12_000 })), prev,
     sample({ cpuUsageUsec: 300_500, sampledAtMs: 21_000 }));
@@ -102,7 +103,7 @@ test("second sample: cores = usage delta over wall delta", () => {
 });
 
 test("non-positive time delta or counter reset gives no cpu rate", () => {
-  const prev = { api: sample({ cpuUsageUsec: 100, sampledAtMs: 5000 }), loadgen: sample({ cpuUsageUsec: 900, sampledAtMs: 1000 }), lastApiOkAt: null };
+  const prev = { api: sample({ cpuUsageUsec: 100, sampledAtMs: 5000 }), loadgen: sample({ cpuUsageUsec: 900, sampledAtMs: 1000 }), lastApiOkAt: null, lastSidecarOkAt: null };
   const s = status(okProbe(sample({ cpuUsageUsec: 200, sampledAtMs: 5000 })), prev, sample({ cpuUsageUsec: 10, sampledAtMs: 2000 }));
   assert.equal(s.api.cpuCores, null);
   assert.equal(s.loadgen.cpuCores, null);
@@ -169,12 +170,14 @@ test("a timeout within 30 s of the last success is slow; at 30 s or with no succ
 test("nextPrev keeps stats and stamps the last api success; a failure keeps the old stamp", () => {
   const stats = sample({ cpuUsageUsec: 9 });
   const self = sample({ cpuUsageUsec: 7 });
-  const before = Object.freeze({ api: sample({}), loadgen: null, lastApiOkAt: 5 });
+  const before = Object.freeze({ api: sample({}), loadgen: null, lastApiOkAt: 5, lastSidecarOkAt: 3 });
   assert.deepEqual(nextPrev({ apiProbe: okProbe(stats, 503), selfStats: self, prev: before, nowMs: NOW }),
-    { api: stats, loadgen: self, lastApiOkAt: NOW });
-  assert.deepEqual(nextPrev({ apiProbe: failed("timeout"), selfStats: self, prev: before, nowMs: NOW }),
-    { api: null, loadgen: self, lastApiOkAt: 5 });
-  assert.deepEqual(before, { api: sample({}), loadgen: null, lastApiOkAt: 5 });
+    { api: stats, loadgen: self, lastApiOkAt: NOW, lastSidecarOkAt: 3 });
+  assert.deepEqual(nextPrev({ apiProbe: failed("timeout"), sidecarProbe: { ok: true }, selfStats: self, prev: before, nowMs: NOW }),
+    { api: null, loadgen: self, lastApiOkAt: 5, lastSidecarOkAt: NOW });
+  assert.deepEqual(nextPrev({ apiProbe: okProbe(stats), sidecarProbe: failed("refused"), selfStats: self, prev: before, nowMs: NOW }),
+    { api: stats, loadgen: self, lastApiOkAt: NOW, lastSidecarOkAt: 3 });
+  assert.deepEqual(before, { api: sample({}), loadgen: null, lastApiOkAt: 5, lastSidecarOkAt: 3 });
 });
 
 test("classifyProbeError: timeout and abort, network codes, anything else is http", () => {
@@ -205,7 +208,7 @@ test("an unlimited memory limit stays null", () => {
 });
 
 const dbRow = (cur: DbLoad | null, prev: DbLoad | null, pool = { max: 10, total: 10, idle: 0, waiting: 7 }) =>
-  status(okProbe(sample({ db: cur, pool })), { api: prev && sample({ db: prev }), loadgen: null, lastApiOkAt: null }).db;
+  status(okProbe(sample({ db: cur, pool })), { api: prev && sample({ db: prev }), loadgen: null, lastApiOkAt: null, lastSidecarOkAt: null }).db;
 
 test("db first sample: gauges and pool pass through, rates are null", () => {
   assert.deepEqual(dbRow(load({ sampledAtMs: 5000 }), null, { max: 8, total: 6, idle: 2, waiting: 3 }), {
@@ -244,6 +247,50 @@ test("db rates are null on a counter reset, no elapsed time, or no block reads",
 
 test("db load missing from api stats leaves every db field null", () => {
   assert.deepEqual(dbRow(null, load({})), { service: "db", ...up, ...noCgroup, ...noDb });
+});
+
+test("sidecar stats: api row names its observer, db pool fields are null, db gauges pass through", () => {
+  const sidecar = { ...sample({ nrThrottled: null, throttledUsec: null, db: load({}), pool: null }), observer: "sidecar" };
+  const rows = status(okProbe(sidecar));
+  assert.deepEqual(rows.api, {
+    service: "api", ...up, cpuCores: null, cpuQuotaCores: 0.5, nrThrottled: null, memBytes: 100, memMaxBytes: 200, observer: "sidecar",
+  });
+  assert.deepEqual(rows.db, {
+    service: "db", ...up, ...noCgroup,
+    connUsed: 12, connMax: 100, activeBackends: 3, waitingBackends: 1, poolBusy: null, poolMax: null,
+    poolWaiting: null, commitsPerSec: null, rowsPerSec: null, cacheHitRatio: null,
+  });
+});
+
+const withSidecar = (sidecarProbe: HealthProbe, prev: Prev = fresh) =>
+  byName(buildStatus({ apiProbe: okProbe(sample({})), sidecarProbe, selfStats: sample({}), prev, nowMs: NOW }));
+
+test("a sidecar probe adds a fourth row, up on success, with no cgroup fields", () => {
+  const s = withSidecar({ ok: true });
+  assert.deepEqual(Object.keys(s), ["api", "db", "loadgen", "sidecar"]);
+  assert.deepEqual(s.sidecar, { service: "sidecar", ...up, ...noCgroup });
+});
+
+test("the sidecar row follows the api's slow and down rules, in its own words", () => {
+  const recent = { ...fresh, lastSidecarOkAt: NOW - 1000 };
+  const slow = withSidecar(failed("timeout", "TimeoutError"), recent).sidecar;
+  assert.deepEqual([slow.state, slow.up, slow.reason], ["slow", true, "The sidecar did not answer within 3 s but answered in the last 30 s."]);
+  const stale = withSidecar(failed("timeout", "TimeoutError"), { ...fresh, lastSidecarOkAt: NOW - 30_000 }).sidecar;
+  assert.deepEqual([stale.state, stale.reason], ["down", "The sidecar has not answered for 30 s or more (TimeoutError)."]);
+  const refused = withSidecar(failed("refused", "ECONNREFUSED"), recent).sidecar;
+  assert.deepEqual([refused.state, refused.up, refused.reason], ["down", false, "The sidecar refused the connection or its name did not resolve (ECONNREFUSED)."]);
+  const api = withSidecar(failed("refused", "ECONNREFUSED")).api;
+  assert.deepEqual([api.state, api.reason], ["up", null]);
+});
+
+test("sampler: a sidecar probe runs beside the api probe; its rejection is classified, not thrown", async () => {
+  const refused = Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } });
+  const s = createStatusSampler({
+    probe: async () => okProbe(sample({})), sidecarProbe: () => Promise.reject(refused), selfStats: () => sample({}),
+    now: () => NOW, onError: (err) => assert.fail(String(err)),
+  });
+  const sidecar = byName(await s.sampleOnce()).sidecar;
+  assert.deepEqual([sidecar.state, sidecar.reason], ["down", "The sidecar refused the connection or its name did not resolve (ECONNREFUSED)."]);
 });
 
 // A sampler whose probe and cgroup reads come from queues, with a fixed clock.

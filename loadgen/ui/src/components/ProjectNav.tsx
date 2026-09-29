@@ -1,5 +1,5 @@
 import { hrefOf, type Project } from "@/lib/projects";
-import { pillsFor, type Health, type Service } from "@/lib/status";
+import { pillsFor, showPills, type Health, type Service } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { ServicePill } from "./ServicePill";
 
@@ -32,7 +32,9 @@ function Pills({ p, health }: { p: Project; health: HealthMap }) {
   );
 }
 
-function Item({ p, active, health, onNavigate }: { p: Project; active: boolean; health: HealthMap; onNavigate?: () => void }) {
+type ItemProps = { p: Project; active: boolean; live: boolean; health: HealthMap; onNavigate?: () => void };
+
+function Item({ p, active, live, health, onNavigate }: ItemProps) {
   if (p.status === "upcoming") {
     return <a aria-disabled="true" className={cn(LINK, "border border-transparent text-muted-foreground")}><Body p={p} /></a>;
   }
@@ -41,16 +43,18 @@ function Item({ p, active, health, onNavigate }: { p: Project; active: boolean; 
       <a href={hrefOf(p)} aria-current={active ? "page" : undefined} onClick={onNavigate} className={cn(LINK, !active && "hover:bg-accent")}>
         <Body p={p} />
       </a>
-      <Pills p={p} health={health} />
+      {live && <Pills p={p} health={health} />}
     </div>
   );
 }
 
 // A book's projects, indented under it with a 1px rule marking the nesting.
-export function ProjectNav({ projects, active, health, onNavigate }: { projects: readonly Project[]; active: Project | null; health: HealthMap; onNavigate?: () => void }) {
+type Props = { projects: readonly Project[]; active: Project | null; liveId: string | null; health: HealthMap; onNavigate?: () => void };
+
+export function ProjectNav({ projects, active, liveId, health, onNavigate }: Props) {
   return (
     <ul className="ml-3 flex flex-col gap-1 border-l pl-2">
-      {projects.map((p) => <li key={p.id}><Item p={p} active={p === active} health={health} onNavigate={onNavigate} /></li>)}
+      {projects.map((p) => <li key={p.id}><Item p={p} active={p === active} live={showPills(p, liveId)} health={health} onNavigate={onNavigate} /></li>)}
     </ul>
   );
 }

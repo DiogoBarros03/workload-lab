@@ -1,0 +1,13 @@
+# The sidecar's /stats on the host at localhost:31001 (mapped by lab/kind.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-stats
+spec:
+  type: NodePort
+  selector:
+    app: api
+  ports:
+    - port: 3001
+      targetPort: 3001
+      nodePort: 31001

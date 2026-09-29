@@ -18,6 +18,10 @@ export type Lesson = {
   architecture: Architecture;
   flaws: string[] | null;
   quick: QuickTest[];
+  // The results/ file key of the recorded runs, null until measured.
+  measured: string | null;
+  // One closing paragraph on the same runs repeated on the cluster.
+  onKubernetes: string | null;
 };
 
 const node = (id: string, label: string, kind: ArchKind, extra: Partial<ArchNode> = {}): ArchNode => ({ id, label, kind, ...extra });
@@ -32,6 +36,9 @@ const LOADGEN = node("loadgen", "loadgen", "load");
 const DB = node("db", "db", "store", { sub: "Postgres 16" });
 
 const BASELINE: Lesson = {
+  measured: "000-baseline",
+  onKubernetes:
+    "The same runs on the Kubernetes cluster that [[001]] introduces give the same picture: reads at 3 000 a second in 9 ms, the write knee near 840 a second with 2 883 requests waiting for the pool, and the kernel killing the API past it. Full numbers are in `results/000-k8s.md`.",
   quick: [
     { label: "Read 1 000", op: "read", rps: 1000, durationSec: 20, note: "Comfortable. The API uses a quarter of its CPU quota." },
     { label: "Write 1 000", op: "write", rps: 1000, durationSec: 20, note: "Degraded. The **connection pool** fills and requests queue; [[009]] moves writes off the request path." },
@@ -64,9 +71,9 @@ const BASELINE: Lesson = {
   architecture: {
     summary: "One synchronous request path. Each request holds a pooled connection for the duration of its query; nothing queues, retries, or sheds load.",
     nodes: [
-      node("loadgen", "loadgen", "load", { sub: "no CPU or memory limit · 10 000 in flight" }),
-      node("api", "api", "service", { sub: "Fastify · 0.5 CPU · 128 MiB · pool 10" }),
-      node("db", "db", "store", { sub: "Postgres 16 · 1 CPU · 256 MiB" }),
+      node("loadgen", "loadgen", "load", { sub: "unlimited" }),
+      node("api", "api", "service", { sub: "0.5 CPU · 128 MiB · pool 10" }),
+      node("db", "db", "store", { sub: "1 CPU · 256 MiB" }),
     ],
     edges: [{ from: "loadgen", to: "api", label: "HTTP, fixed rate" }, { from: "api", to: "db", label: "SQL, 10 connections" }],
   },
@@ -77,17 +84,65 @@ const BASELINE: Lesson = {
   ],
 };
 
+const SIDECAR: Lesson = {
+  measured: "001-sidecar",
+  onKubernetes: null,
+  quick: [
+    { label: "Read 1 000", op: "read", rps: 1000, durationSec: 20, note: "Comfortable. The sidecar's CPU reading sits below the cgroup's." },
+    { label: "Write 1 000", op: "write", rps: 1000, durationSec: 20, note: "Failed once. The **pool** fills; one pass was OOM-killed, the other only degraded." },
+    { label: "Mixed 1 000", op: "mixed", rps: 1000, durationSec: 20, note: "Comfortable." },
+    { label: "Read 5 000", op: "read", rps: 5000, durationSec: 20, note: "Degraded. The API is on its **CPU quota** and the sidecar cannot see the throttling." },
+    { label: "Write 3 000", op: "write", rps: 3000, durationSec: 20, note: "Fails. Kubernetes restarts the API mid-run; [[009]] moves writes off the request path." },
+  ],
+  story: [
+    "In [[000]] we saw that a single API container reaches its CPU limit on reads and its connection limit on writes, and that we could only see this because the API reported its own counters. A **sidecar** is a second container that runs beside the API in the same pod and takes on a concern the API should not have to carry, such as collecting and exposing metrics or logs. This project asks _whether we can add that observability without changing the API image at all_.",
+    "This is also the first project that runs on **Kubernetes**. The cluster is three podman containers acting as nodes, created from one file in the repo, so anyone can have the same one on a laptop. Before adding the sidecar we ran the baseline there unchanged: reads at 3 000 a second answered in 9 ms, writes hit the same pool of ten near 840 a second, and past that the kernel killed the API exactly as in [[000]]. _The platform changed; the limits did not_, which is what makes the comparison below fair.",
+  ],
+  handsOn:
+    "**Create the cluster** if it is not running, start the containers, and run the same quick tests as in [[000]]. The diagram now shows a pod with two containers: the API and the sidecar beside it, sharing the pod's limits. The sidecar reports the API's CPU and memory from the outside, and the database's load from its own connection; _compare its numbers with what the API reported about itself in the baseline_.",
+  changed: [
+    "The API image is **byte-for-byte the one** from [[000]]. What changed is the pod around it: a second container, the sidecar, starts next to the API, shares its process namespace, and serves the `/stats` endpoint the API used to serve itself. The load generator now reads observability from the sidecar's port, and the API's own copy of that code is simply unused. This is the sidecar pattern: a concern the application should not carry, attached at deployment time rather than written into the code.",
+    "It buys independence. The sidecar can be upgraded, restarted or replaced without touching the API, and it keeps answering while the API restarts. It costs a little: its own 0.1 CPU and 64 MiB, one more database connection, and one more thing to schedule. _Whether the cost is measurable is the question this project answers_.",
+  ],
+  learned: [
+    "The sidecar is **free at the rates that matter**. Through 3 000 reads a second the numbers with and without it are the same: 2 999 versus 2 997 requests a second, p99 9.0 versus 9.1 milliseconds. The write knee is unchanged too, still the pool of ten near 900 requests a second. At 5 000 reads the API sits on its 0.5-core quota with or without a sidecar; that limit belongs to the API, not to the pattern.",
+    "A sidecar sees the **process, not the kernel's accounting**. Reading `/proc`, it reported 0.09 cores where the cgroup counted 0.17, and 0.37 where the cgroup was pinned at its 0.50 quota. It never saw the 75 throttled periods at 5 000 reads, because throttling is a cgroup fact with no trace in `/proc`. Its memory figure disagreed in the other direction, 161 MiB against the cgroup's 126 MiB, because resident set size counts shared pages the cgroup does not. _Honest, and incomplete_.",
+    "That gap is not a bug to fix in the sidecar; it is the reason the next pattern exists. Observability that must match what the scheduler enforces has to come from the node, not from a neighbour in the pod. The adapter in [[003]] and, later, the cluster's own metrics take that role. The sidecar's job was to move the concern out of the application, and that part worked.",
+    "Kubernetes changed how failure looks. On compose the killed API stayed dead until a restart policy brought it back; here the scheduler restarts it within the run, so a write run at 2 000 a second shows two restarts and a goodput of a few hundred requests a second instead of a dead service. _Faster recovery is not the same as higher capacity_: the limit that killed it is untouched.",
+  ],
+  summary: [
+    "Moving observability into a sidecar costs nothing the load can measure and removes code from the application, which is the point of the pattern. The same measurements show its ceiling: from inside the pod, a sidecar knows what the process does, not what the kernel does to it.",
+    "The cluster is now the lab's platform, and the baseline reproduces on it. The next projects build on both: [[002]] puts an ambassador in front of the database connection, the limit every write run keeps hitting.",
+  ],
+  architecture: {
+    summary: "One pod, two containers: the API serves traffic, the sidecar watches it through the shared process namespace and serves metrics on its own port; both share the pod's limits.",
+    nodes: [
+      node("loadgen", "loadgen", "load", { sub: "unlimited" }),
+      node("api", "api", "service", { group: "Pod", sub: "0.5 CPU · 128 MiB · pool 10" }),
+      node("sidecar", "stats-sidecar", "infra", { group: "Pod", sub: "0.1 CPU · 64 MiB · /proc" }),
+      node("db", "db", "store", { sub: "1 CPU · 256 MiB" }),
+    ],
+    edges: [
+      { from: "loadgen", to: "api", label: "HTTP" }, { from: "api", to: "db", label: "11 connections" },
+      { from: "sidecar", to: "db", label: "SQL, 1 connection" },
+    ],
+  },
+  flaws: [
+    "The sidecar's numbers cannot be trusted for limits. It under-reports CPU, over-reports memory and cannot see throttling, so a dashboard built on it would miss the moment the API is being held back.",
+    "Every pod restart is a cold start for observability too. The sidecar keeps its port open, but the counters it reads reset with the process, so a run that kills the API loses the samples that would have explained the kill.",
+    "The write path is untouched. Ten connections and no backpressure are exactly the flaws of [[000]], carried into every project until one of them addresses the connection to the database.",
+  ],
+};
+
 const REPLICAS = many("api", "api", "service", "Replicas", 3);
 const SHARDS = [node("db-a", "db-a", "store", { group: "Shards" }), node("db-b", "db-b", "store", { group: "Shards" })];
 const LEAVES = many("leaf", "leaf", "service", "Leaves", 3);
 const FUNCTIONS = many("fn", "function", "service", "Functions", 3);
 const WORKERS_2 = many("worker", "worker", "service", "Workers", 2);
 const WORKERS_3 = many("worker", "worker", "service", "Workers", 3);
-const POD = [node("api", "api", "service", { group: "Pod" }), node("sidecar", "metrics sidecar", "infra", { group: "Pod" })];
 
 // Planned diagrams for projects not built yet.
 const PLANNED: Record<string, Omit<Architecture, "summary">> = {
-  "001": { nodes: [...POD, DB], edges: chain("api", "db") },
   "002": {
     nodes: [node("api", "api", "service"), node("ambassador", "ambassador", "infra", { sub: "retries · timeouts · breaker" }), DB],
     edges: chain("api", "ambassador", "db"),
@@ -111,7 +166,6 @@ const PLANNED: Record<string, Omit<Architecture, "summary">> = {
 
 // The opening story of each project not built yet.
 const STORIES: Record<string, string> = {
-  "001": "In [[000]] we saw that a single API container reaches its CPU limit on reads and its connection limit on writes, and that we could only see this because the API reported its own counters. A **sidecar** is a second container that runs beside the API in the same pod and takes on a concern the API should not have to carry, such as collecting and exposing metrics or logs. This project asks _whether we can add that observability without changing the API image at all_.",
   "002": "In [[000]] a slow or unreachable database turned straight into errors for every caller, and in [[001]] we moved observability out of the API. An **ambassador** goes one step further: a container next to the API that owns the connection to the database, adding retries, timeouts and a circuit breaker on the API's behalf. The question is _whether resilience can live outside the application code_.",
   "003": "[[001]] and [[002]] put helper containers beside the API. An **adapter** uses the same idea to translate: it presents one standard monitoring interface no matter which implementation of the API is running behind it. This project asks _whether two different implementations can be measured with exactly the same dashboard_.",
   "004": "[[000]] ended with a single container out of CPU on reads at a few thousand requests per second. The first answer any operator reaches for is more copies: several identical API containers behind a **load balancer**, each taking a share of the traffic. This project measures _whether the read limit moves in proportion to the number of replicas, and what the single database does when several APIs are writing to it at once_.",
@@ -128,9 +182,14 @@ const upcoming = (p: Project): Lesson => {
   const plan = PLANNED[p.id];
   const story = STORIES[p.id];
   if (plan === undefined || story === undefined) throw new Error(`lessons: no planned architecture or story for ${p.id}`);
-  return { story: [story], handsOn: null, changed: null, learned: null, summary: null, flaws: null, quick: [], architecture: { summary: p.question, ...plan } };
+  return {
+    story: [story], handsOn: null, changed: null, learned: null, summary: null, flaws: null, quick: [], measured: null, onKubernetes: null,
+    architecture: { summary: p.question, ...plan },
+  };
 };
 
+const BUILT: Record<string, Lesson> = { "000": BASELINE, "001": SIDECAR };
+
 export const LESSONS: Record<ProjectId, Lesson> = Object.fromEntries(
-  PROJECTS.map((p) => [p.id, p.id === "000" ? BASELINE : upcoming(p)]),
+  PROJECTS.map((p) => [p.id, BUILT[p.id] ?? upcoming(p)]),
 );

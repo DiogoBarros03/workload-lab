@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useReset } from "@/hooks/use-reset";
 import { validCount } from "@/lib/format";
+import type { Project } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import type { RunConfig, RunForm } from "@/lib/run";
 import { NumberField } from "./NumberField";
@@ -12,7 +13,7 @@ const MAX_RPS = 5000;
 const MAX_DURATION_SEC = 300;
 
 type Props = {
-  form: RunForm; onForm: (f: RunForm) => void; runRef: React.Ref<HTMLButtonElement>;
+  project: Project; form: RunForm; onForm: (f: RunForm) => void; runRef: React.Ref<HTMLButtonElement>;
   running: boolean; warning: string | null; onRun: (c: RunConfig) => void; onStop: () => void; className?: string;
   control?: React.ReactNode; blocked?: boolean;
 };
@@ -23,10 +24,10 @@ function Warning({ blocked, warning }: { blocked: boolean; warning: string | nul
   return warning && <p className="text-meta text-red-fg">{warning}</p>;
 }
 
-export function RunCard({ form, onForm, runRef, running, warning, onRun, onStop, className, control, blocked = false }: Props) {
+export function RunCard({ project, form, onForm, runRef, running, warning, onRun, onStop, className, control, blocked = false }: Props) {
   const { op, rps, duration } = form;
   const set = (patch: Partial<RunForm>) => onForm({ ...form, ...patch });
-  const reset = useReset();
+  const reset = useReset(project);
   const valid = !blocked && validCount(rps, MAX_RPS) && validCount(duration, MAX_DURATION_SEC);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

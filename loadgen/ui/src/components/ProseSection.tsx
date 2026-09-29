@@ -10,11 +10,12 @@ const LINK = "rounded-sm text-ink underline underline-offset-4 outline-none focu
 function Inline({ part }: { part: InlinePart }) {
   if (part.kind === "link") return <a href={part.href} className={LINK}>{part.text}</a>;
   if (part.kind === "strong") return <strong className="font-semibold"><MonoDigits text={part.text} /></strong>;
+  if (part.kind === "code") return <code className="rounded-sm border border-border bg-card px-1 font-mono text-[0.92em]">{part.text}</code>;
   if (part.kind === "em") return <em className="italic tracking-normal"><MonoDigits text={part.text} /></em>;
   return <MonoDigits text={part.text} />;
 }
 
-// Inline text: [[id]] links, **bold**, _italic_; digits set in mono throughout.
+// Inline text: [[id]] links, **bold**, _italic_, `code`; digits set in mono throughout.
 export const RichText = ({ text }: { text: string }) => inlineParts(text).map((part, i) => <Inline key={i} part={part} />);
 
 const Paragraph = ({ text }: { text: string }) => <p><RichText text={text} /></p>;

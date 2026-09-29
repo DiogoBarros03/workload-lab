@@ -5,6 +5,7 @@ import type { Architecture } from "@/lib/learning";
 import { edgeFlow, edgeReadout, idle, nodeReadout, type EdgeReadout, type LiveStatus, type NodeReadout } from "@/lib/live";
 import type { Progress, RunState } from "@/lib/run";
 import type { Health, Service } from "@/lib/status";
+import { Group } from "./ArchDiagram";
 import { FlowEdge } from "./live/FlowEdge";
 import { NodeCard } from "./live/NodeCard";
 
@@ -12,7 +13,7 @@ export type LiveArchDiagramProps = {
   architecture: Architecture; run: RunState; status: StatusState; health: Record<Service, Health>; now?: number;
 };
 
-const CARD = { boxH: 112, minBoxW: 240 };
+const CARD = { boxH: 130, minBoxW: 208 };
 // Cards omit the sub line; gaps are sized for a rate label, not the static one.
 const RATE_WIDEST = "88 888/s";
 
@@ -61,6 +62,7 @@ export function LiveArchDiagram({ architecture: a, run, status, health, now }: L
               <path d="M0 0 L8 4 L0 8 Z" fill="var(--ink-muted)" />
             </marker>
           </defs>
+          {layout.groups.map((g) => <Group key={g.name + g.x} g={g} />)}
           {edgeRoutes(layout, a.edges).map(({ edge, line }) => <FlowEdge key={line.x1} line={line} readout={edgeReadout(edge, live, s)} quiet={quiet} />)}
           {layout.boxes.map((b) => <NodeCard key={b.node.id} b={b} r={readouts.get(b.node.id)!} />)}
         </svg>

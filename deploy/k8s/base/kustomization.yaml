@@ -1,0 +1,12 @@
+# Lab stack base. db/init.sql lives outside: render with --load-restrictor LoadRestrictionsNone.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: lab
+resources:
+  - namespace.yaml
+  - db.yaml
+  - api.yaml
+configMapGenerator:
+  - name: db-init
+    files:
+      - init.sql=../../../db/init.sql

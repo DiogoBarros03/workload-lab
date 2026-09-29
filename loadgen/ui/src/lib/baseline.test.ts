@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import {
-  detailLine, failedCount, groupRuns, monoDigits, oomKilled, parseBaseline, runPresetFrom, shortfallPct, verdictFor, verdictTone, type Run,
+  detailLine, failedCount, groupRuns, measuredCaption, monoDigits, oomKilled, parseBaseline, runPresetFrom, shortfallPct, verdictFor, verdictTone, type Run,
 } from "./baseline";
 
 const run = (over: Partial<Run> = {}): Run => ({
@@ -108,4 +108,45 @@ test("verdictFor returns the verdict of the measured run with the same op and ta
   expect(verdictFor({ op: "read", rps: 1000 }, b)).toBe("ok");
   expect(verdictFor({ op: "read", rps: 4000 }, b)).toBeNull();
   expect(verdictFor({ op: "mixed", rps: 1000 }, b)).toBeNull();
+});
+
+const k8sRun = (over: Partial<Run> = {}) => run({ observer: "sidecar", restartsAfter: 2, peakCpuCoresSidecar: 0.26, peakCpuCores: null, peakCommitsPerSec: null, ...over });
+const k8sDoc = (over: Record<string, unknown> = {}) =>
+  doc({ target: "k8s-sidecar", overlay: "deploy/k8s/overlays/001-sidecar", setup: { ...setup, sidecarCpu: 0.1, sidecarMemMiB: 64 }, runs: [k8sRun()], ...over });
+
+test("parseBaseline accepts the kind schema: target, overlay, observer, restarts, sidecar CPU, null peaks", () => {
+  const d = k8sDoc();
+  expect(parseBaseline(d)).toEqual(d);
+  const allNull = k8sDoc({ runs: [k8sRun({ peakMemMiB: null, peakPoolWaiting: null, peakCpuCoresSidecar: null })] });
+  expect(parseBaseline(allNull)).toEqual(allNull);
+});
+
+test("parseBaseline rejects malformed kind fields and still requires every peak", () => {
+  expect(() => parseBaseline(k8sDoc({ target: 5 }))).toThrow("target");
+  expect(() => parseBaseline(k8sDoc({ overlay: null }))).toThrow("overlay");
+  expect(() => parseBaseline(k8sDoc({ setup: { ...setup, sidecarCpu: "0.1" } }))).toThrow("setup.sidecarCpu");
+  expect(() => parseBaseline(k8sDoc({ runs: [k8sRun({ observer: 1 as never })] }))).toThrow("runs[0].observer");
+  expect(() => parseBaseline(k8sDoc({ runs: [k8sRun({ restartsAfter: null as never })] }))).toThrow("runs[0].restartsAfter");
+  expect(() => parseBaseline(k8sDoc({ runs: [k8sRun({ peakCpuCoresSidecar: "x" as never })] }))).toThrow("runs[0].peakCpuCoresSidecar");
+  expect(() => parseBaseline(k8sDoc({ runs: [k8sRun({ peakCpuCores: "0.5" as never })] }))).toThrow("runs[0].peakCpuCores");
+  expect(() => parseBaseline(k8sDoc({ runs: [k8sRun({ peakCpuCores: undefined })] }))).toThrow("runs[0].peakCpuCores");
+  expect(() => parseBaseline(k8sDoc({ runs: [k8sRun({ p99: null as never })] }))).toThrow("runs[0].p99");
+});
+
+test("detailLine adds sidecar CPU when present, restarts when above zero, and a dash for unknown peaks", () => {
+  expect(detailLine(run({ ...quiet, peakCpuCoresSidecar: 0.23, restartsAfter: 0 }), 0.5)).toBe(
+    "Peak CPU 0.26 / 0.50 cores · Throttled 0 · Pool waiting 10 · Max in flight 12 · p50 1.30 ms · Sidecar CPU 0.23",
+  );
+  expect(detailLine(run({ ...quiet, peakCpuCores: null, peakPoolWaiting: null, peakCpuCoresSidecar: null, restartsAfter: 2, errors: 7 }), 0.5)).toBe(
+    "Peak CPU — / 0.50 cores · Throttled 0 · Pool waiting — · Max in flight 12 · p50 1.30 ms · Sidecar CPU — · Restarts 2 · Dropped 0 · Errors 7",
+  );
+});
+
+test("measuredCaption names kind for k8s targets and the sidecar's limits when it has them", () => {
+  expect(measuredCaption(parseBaseline(doc()))).toBe("20 s per run · API 0.5 CPU / 128 MiB / pool 10");
+  expect(measuredCaption(parseBaseline(doc({ target: "k8s", setup: { ...setup, durationSec: 30 } })))).toBe(
+    "Measured on kind · 30 s per run · API 0.5 CPU / 128 MiB / pool 10",
+  );
+  expect(measuredCaption(parseBaseline(k8sDoc()))).toBe("Measured on kind · 20 s per run · API 0.5 CPU / 128 MiB / pool 10 · sidecar 0.1 CPU / 64 MiB");
+  expect(measuredCaption(parseBaseline(doc({ target: "compose" })))).toBe("20 s per run · API 0.5 CPU / 128 MiB / pool 10");
 });

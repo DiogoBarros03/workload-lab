@@ -36,3 +36,52 @@ export const mergeOff = (health: Record<Service, Health>, states: OpStates | nul
 const wordOf = (op: OpService | undefined) => (op === undefined ? "unknown" : isOff(op) ? "off" : "running");
 export const summaryOf = (states: OpStates, services: readonly Service[]) =>
   services.map((s) => `${s} ${wordOf(states[s])}`).join(" · ");
+
+const POD_STATES = ["running", "waiting", "terminated"] as const;
+type PodContainer = { name: string; state: (typeof POD_STATES)[number]; ready: boolean };
+type Overlay = { applied: boolean; pods: { containers: PodContainer[] }[] };
+type Cluster = { exists: false } | { exists: true; ready: string; overlays: Record<string, Overlay> };
+export type ClusterSummary = { exists: boolean; ready: string | null; applied: string[] };
+
+// Validates the operator's GET /cluster body; overlays are only read once the cluster exists.
+function clusterOf(payload: unknown): Cluster {
+  const c = payload as { exists?: unknown; ready?: unknown; overlays?: unknown } | null;
+  if (typeof c?.exists !== "boolean") throw new Error("operator cluster payload has no exists");
+  if (!c.exists) return { exists: false };
+  if (typeof c.overlays !== "object" || c.overlays === null) throw new Error("operator cluster payload has no overlays");
+  if (typeof c.ready !== "string") throw new Error("operator cluster payload has no ready");
+  return c as Cluster;
+}
+
+function checked(c: PodContainer): PodContainer {
+  if (!POD_STATES.includes(c.state)) throw new Error(`operator reported container ${c.name} state ${c.state}`);
+  return c;
+}
+
+// Pod container names, by the service they run.
+const SERVICE_OF = new Map<string, Service>([["api", "api"], ["stats-sidecar", "sidecar"], ["postgres", "db"], ["db", "db"]]);
+// loadgen serves this page, so it is running whenever the page is read.
+const LOADGEN: OpService = { state: "running", health: null };
+
+// Waiting is starting, not stopped; only all-terminated reads as exited.
+function opOf(containers: PodContainer[]): OpService {
+  if (containers.length === 0) return { state: "absent", health: null };
+  if (containers.every((c) => c.state === "terminated")) return { state: "exited", health: null };
+  return { state: "running", health: containers.every((c) => c.ready) ? "healthy" : "starting" };
+}
+
+// Per-service states of one overlay's pods; a missing overlay or cluster reads as absent.
+export function clusterStates(payload: unknown, overlay: string): OpStates {
+  const cluster = clusterOf(payload);
+  const pods = cluster.exists ? (cluster.overlays[overlay]?.pods ?? []) : [];
+  const containers = pods.flatMap((p) => p.containers).map(checked);
+  const of = (s: Service) => (s === "loadgen" ? LOADGEN : opOf(containers.filter((c) => SERVICE_OF.get(c.name) === s)));
+  return Object.fromEntries(SERVICES.map((s) => [s, of(s)]));
+}
+
+export function clusterSummary(payload: unknown): ClusterSummary {
+  const cluster = clusterOf(payload);
+  if (!cluster.exists) return { exists: false, ready: null, applied: [] };
+  const applied = Object.entries(cluster.overlays).filter(([, o]) => o.applied).map(([name]) => name);
+  return { exists: true, ready: cluster.ready, applied };
+}

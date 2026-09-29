@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { hrefOf, PROJECTS, projectOf, routeFor } from "./projects";
+import { hrefOf, liveProject, PROJECTS, projectOf, routeFor } from "./projects";
 
 test("project ids are unique three-digit strings in roadmap order", () => {
   const ids = PROJECTS.map((p) => p.id);
@@ -7,9 +7,9 @@ test("project ids are unique three-digit strings in roadmap order", () => {
   expect(ids).toEqual(Array.from({ length: 12 }, (_, i) => String(i).padStart(3, "0")));
 });
 
-test("exactly one project is ready, and it is 000 Baseline", () => {
+test("000 Baseline and 001 Sidecar are ready, the rest upcoming", () => {
   const ready = PROJECTS.filter((p) => p.status === "ready");
-  expect(ready.map((p) => [p.id, p.title])).toEqual([["000", "Baseline"]]);
+  expect(ready.map((p) => [p.id, p.title])).toEqual([["000", "Baseline"], ["001", "Sidecar"]]);
 });
 
 test("hrefOf namespaces id and slug under the book", () => {
@@ -50,6 +50,33 @@ test("000 Baseline declares api, db and loadgen", () => {
 test("every project declares at least one known service", () => {
   for (const p of PROJECTS) {
     expect(p.services.length).toBeGreaterThan(0);
-    for (const s of p.services) expect(["api", "db", "loadgen"]).toContain(s);
+    for (const s of p.services) expect(["api", "sidecar", "db", "loadgen"]).toContain(s);
   }
+});
+
+test("000 runs on compose with the compose target", () => {
+  expect([PROJECTS[0].target, PROJECTS[0].runtime]).toEqual(["compose", { kind: "compose", services: ["api", "db", "loadgen"] }]);
+});
+
+test("every project's services are its runtime's services", () => {
+  for (const p of PROJECTS) expect(p.services).toBe(p.runtime.services);
+});
+
+test("every later project runs a kind overlay named <id>-<slug>", () => {
+  for (const p of PROJECTS.slice(1)) {
+    expect(p.runtime).toEqual({ kind: "kind", overlay: `${p.id}-${p.slug}`, services: p.services });
+    expect(p.target).toBe(p.id === "001" ? "k8s-sidecar" : "k8s");
+  }
+});
+
+test("001 Sidecar adds the sidecar to the core services", () => {
+  expect(PROJECTS[1].services).toEqual(["api", "sidecar", "db", "loadgen"]);
+  expect(PROJECTS[2].services).toEqual(["api", "db", "loadgen"]);
+});
+
+test("liveProject keeps a ready project and home, and swaps an upcoming one for 000", () => {
+  expect(liveProject(PROJECTS[0])).toBe(PROJECTS[0]);
+  expect(liveProject(null)).toBeNull();
+  expect(liveProject(PROJECTS[2])).toBe(PROJECTS[0]);
+  expect(liveProject(PROJECTS[1])?.target).toBe("k8s-sidecar");
 });

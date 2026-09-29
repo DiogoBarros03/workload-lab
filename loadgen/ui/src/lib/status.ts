@@ -1,6 +1,6 @@
 import type { Project } from "./projects";
 
-export type Service = "api" | "db" | "loadgen";
+export type Service = "api" | "sidecar" | "db" | "loadgen";
 export type State = "up" | "slow" | "down";
 // off: stopped on purpose, as the host operator reports.
 export type Health = State | "unknown" | "off";
@@ -22,6 +22,7 @@ export type Container = {
   nrThrottled: number | null;
   memBytes: number | null;
   memMaxBytes: number | null;
+  observer?: string; // "sidecar" when a sidecar reports the api's cpu and memory
 } & Partial<DbLoad>;
 
 export type CpuSample = { at: number; cores: number; quota: number | null; nrThrottled: number | null };
@@ -30,7 +31,9 @@ export type DbSample = { at: number; poolWaiting: number | null; commitsPerSec: 
 // notes are the server's reasons; reason is set when /status itself failed.
 export type StatusView = { health: Record<Service, Health>; notes: Record<Service, string | null>; reason: string | null };
 
-export const SERVICES: readonly Service[] = ["api", "db", "loadgen"];
+export const SERVICES: readonly Service[] = ["api", "sidecar", "db", "loadgen"];
+
+export const statusUrl = (target: string) => `/status?target=${encodeURIComponent(target)}`;
 
 // Legacy payloads carry only up, so state falls back to it.
 export const stateOf = (c: Container): State => c.state ?? (c.up ? "up" : "down");
@@ -44,7 +47,7 @@ function healthOf(containers: Container[] | null, service: Service): Health {
 const noteOf = (containers: Container[] | null, service: Service) =>
   containers?.find((x) => x.service === service)?.reason ?? null;
 
-const perService = <T,>(f: (s: Service) => T) => ({ api: f("api"), db: f("db"), loadgen: f("loadgen") });
+const perService = <T,>(f: (s: Service) => T) => ({ api: f("api"), sidecar: f("sidecar"), db: f("db"), loadgen: f("loadgen") });
 
 export function deriveStatus(containers: Container[] | null, error: string | null): StatusView {
   const known = error === null ? containers : null;
@@ -93,6 +96,9 @@ export type Pill = { service: Service; state: Health; label: string; ariaLabel: 
 
 const WORD: Record<Health, string> = { up: "UP", slow: "SLOW", down: "ERROR", unknown: "?", off: "OFF" };
 const aria = (s: Service, h: Health) => (h === "unknown" ? `${s} status is unknown` : `${s} is ${h}`);
+
+// One status stream serves the app, so only its polled project shows pills.
+export const showPills = (project: Project, liveProjectId: string | null) => project.id === liveProjectId;
 
 // Only a ready project's containers run; a service absent from the map is unknown.
 export const pillsFor = (project: Project, health: Partial<Record<Service, Health>>): Pill[] =>

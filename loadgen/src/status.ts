@@ -16,16 +16,19 @@ export type DbLoad = {
   sampledAtMs: number;
 };
 export type PoolStats = { max: number; total: number; idle: number; waiting: number };
-export type ApiStats = Cgroup & { db: DbLoad | null; pool: PoolStats };
+// A sidecar observer has no pool and names itself in `observer`.
+export type ApiStats = Cgroup & { db: DbLoad | null; pool: PoolStats | null; observer?: string };
 
 export type Prev = {
   readonly api: ApiStats | null;
   readonly loadgen: Cgroup | null;
   readonly lastApiOkAt: number | null;
+  readonly lastSidecarOkAt: number | null;
 };
 
 export type ProbeFailure = { kind: "timeout" | "refused" | "dns" | "http"; detail: string };
 export type ApiProbe = { ok: true; health: number; stats: ApiStats } | ({ ok: false } & ProbeFailure);
+export type HealthProbe = { ok: true } | ({ ok: false } & ProbeFailure);
 
 export type State = "up" | "slow" | "down";
 type Health = { state: State; reason: string | null };
@@ -67,9 +70,11 @@ export type Container = {
   nrThrottled: number | null;
   memBytes: number | null;
   memMaxBytes: number | null;
+  observer?: string;
 } & Partial<DbFields>;
 
-type Input = { apiProbe: ApiProbe; selfStats: Cgroup; prev: Prev; nowMs: number };
+// No sidecarProbe: the target has no sidecar, so no sidecar row.
+type Input = { apiProbe: ApiProbe; sidecarProbe?: HealthProbe; selfStats: Cgroup; prev: Prev; nowMs: number };
 
 // Negative usage delta means the container restarted between samples.
 function cpuCores(prev: Cgroup | null, cur: Cgroup | null) {
@@ -111,6 +116,12 @@ function deltas(prev: DbLoad | null, cur: DbLoad) {
   return { ...d, sec: (cur.sampledAtMs - prev.sampledAtMs) / 1000 };
 }
 
+const poolFields = (pool: PoolStats | null) => ({
+  poolBusy: pool && pool.total - pool.idle,
+  poolMax: pool && pool.max,
+  poolWaiting: pool && pool.waiting,
+});
+
 function dbFields(cur: ApiStats | null, prev: DbLoad | null): DbFields {
   if (!cur?.db) return NO_DB;
   const d = deltas(prev, cur.db);
@@ -120,9 +131,7 @@ function dbFields(cur: ApiStats | null, prev: DbLoad | null): DbFields {
     connMax: cur.db.maxConnections,
     activeBackends: cur.db.activeBackends,
     waitingBackends: cur.db.waitingBackends,
-    poolBusy: cur.pool.total - cur.pool.idle,
-    poolMax: cur.pool.max,
-    poolWaiting: cur.pool.waiting,
+    ...poolFields(cur.pool),
     commitsPerSec: d && d.commits / d.sec,
     rowsPerSec: d && d.rows / d.sec,
     cacheHitRatio: d && blocks > 0 ? d.hit / blocks : null,
@@ -132,21 +141,21 @@ function dbFields(cur: ApiStats | null, prev: DbLoad | null): DbFields {
 const UP: Health = Object.freeze({ state: "up", reason: null });
 const SLOW_WINDOW_MS = 30_000;
 
-const DOWN_REASON: Record<ProbeFailure["kind"], string> = {
-  timeout: "The api has not answered for 30 s or more",
-  refused: "The api refused the connection or its name did not resolve",
-  dns: "The api's hostname does not resolve",
-  http: "The api answered with an error",
+const DOWN_REASON: Record<ProbeFailure["kind"], (who: string) => string> = {
+  timeout: (who) => `The ${who} has not answered for 30 s or more`,
+  refused: (who) => `The ${who} refused the connection or its name did not resolve`,
+  dns: (who) => `The ${who}'s hostname does not resolve`,
+  http: (who) => `The ${who} answered with an error`,
 };
 
 // A timeout is slow only while the last success is under 30 s old.
-function apiHealth(probe: ApiProbe, prev: Prev, nowMs: number): Health {
+function probeHealth(who: string, probe: HealthProbe, lastOkAt: number | null, nowMs: number): Health {
   if (probe.ok) return UP;
-  const recent = prev.lastApiOkAt !== null && nowMs - prev.lastApiOkAt < SLOW_WINDOW_MS;
+  const recent = lastOkAt !== null && nowMs - lastOkAt < SLOW_WINDOW_MS;
   if (probe.kind === "timeout" && recent) {
-    return { state: "slow", reason: "The api did not answer within 3 s but answered in the last 30 s." };
+    return { state: "slow", reason: `The ${who} did not answer within 3 s but answered in the last 30 s.` };
   }
-  return { state: "down", reason: `${DOWN_REASON[probe.kind]} (${probe.detail}).` };
+  return { state: "down", reason: `${DOWN_REASON[probe.kind](who)} (${probe.detail}).` };
 }
 
 function dbHealth(api: Health, probe: ApiProbe): Health {
@@ -156,27 +165,31 @@ function dbHealth(api: Health, probe: ApiProbe): Health {
   return UP;
 }
 
-export function buildStatus({ apiProbe, selfStats, prev, nowMs }: Input) {
+export function buildStatus({ apiProbe, sidecarProbe, selfStats, prev, nowMs }: Input) {
   const apiStats = apiProbe.ok ? apiProbe.stats : null;
-  const api = apiHealth(apiProbe, prev, nowMs);
+  const api = probeHealth("api", apiProbe, prev.lastApiOkAt, nowMs);
+  const sidecar = sidecarProbe ? [row("sidecar", probeHealth("sidecar", sidecarProbe, prev.lastSidecarOkAt, nowMs), null, null)] : [];
   const containers = [
-    row("api", api, apiStats, prev.api),
+    { ...row("api", api, apiStats, prev.api), ...(apiStats?.observer !== undefined && { observer: apiStats.observer }) },
     { ...row("db", dbHealth(api, apiProbe), null, null), ...dbFields(apiStats, prev.api?.db ?? null) },
     row("loadgen", UP, selfStats, prev.loadgen),
+    ...sidecar,
   ];
   return { containers: containers.toSorted((a, b) => a.service.localeCompare(b.service)) };
 }
 
 // The next /status call's previous sample; a failed probe keeps the old success time.
-export const nextPrev = ({ apiProbe, selfStats, prev, nowMs }: Input): Prev => ({
+export const nextPrev = ({ apiProbe, sidecarProbe, selfStats, prev, nowMs }: Input): Prev => ({
   api: apiProbe.ok ? apiProbe.stats : null,
   loadgen: selfStats,
   lastApiOkAt: apiProbe.ok ? nowMs : prev.lastApiOkAt,
+  lastSidecarOkAt: sidecarProbe?.ok ? nowMs : prev.lastSidecarOkAt,
 });
 
 export type Status = ReturnType<typeof buildStatus> & { sampledAtMs: number };
 type SamplerDeps = {
   probe: () => Promise<ApiProbe>;
+  sidecarProbe?: () => Promise<HealthProbe>;
   selfStats: () => Cgroup;
   onError: (err: unknown) => void;
   intervalMs?: number;
@@ -184,15 +197,17 @@ type SamplerDeps = {
 };
 
 // One clock for all pollers: rates are deltas between this sampler's own samples.
-export function createStatusSampler({ probe, selfStats, onError, intervalMs = 2000, now = Date.now }: SamplerDeps) {
-  let prev: Prev = { api: null, loadgen: null, lastApiOkAt: null };
+const failure = (err: unknown) => ({ ok: false, ...classifyProbeError(err) }) as const;
+
+export function createStatusSampler({ probe, sidecarProbe, selfStats, onError, intervalMs = 2000, now = Date.now }: SamplerDeps) {
+  let prev: Prev = { api: null, loadgen: null, lastApiOkAt: null, lastSidecarOkAt: null };
   let latest: Status | null = null;
   let inflight: Promise<Status> | null = null;
   let timer: NodeJS.Timeout | undefined;
 
   async function take(): Promise<Status> {
-    const apiProbe = await probe().catch((err): ApiProbe => ({ ok: false, ...classifyProbeError(err) }));
-    const input = { apiProbe, selfStats: selfStats(), prev, nowMs: now() };
+    const [apiProbe, sidecar] = await Promise.all([probe().catch(failure), sidecarProbe?.().catch(failure)]);
+    const input = { apiProbe, ...(sidecar && { sidecarProbe: sidecar }), selfStats: selfStats(), prev, nowMs: now() };
     prev = nextPrev(input);
     latest = { ...buildStatus(input), sampledAtMs: input.nowMs };
     return latest;

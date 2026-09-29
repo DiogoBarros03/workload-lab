@@ -18,9 +18,9 @@ const status = (extra: Partial<LiveStatus> = {}): LiveStatus => ({
     row("db", { poolBusy: 7, poolMax: 10, poolWaiting: 3865, commitsPerSec: 420 }),
     row("loadgen"),
   ],
-  apiCpu: [], dbLoad: [], health: { api: "up", db: "up", loadgen: "up" }, ...extra,
+  apiCpu: [], dbLoad: [], health: { api: "up", sidecar: "unknown", db: "up", loadgen: "up" }, ...extra,
 });
-const EMPTY = status({ containers: null, health: { api: "unknown", db: "unknown", loadgen: "unknown" } });
+const EMPTY = status({ containers: null, health: { api: "unknown", sidecar: "unknown", db: "unknown", loadgen: "unknown" } });
 
 test("bucketRps rounds to the nearest 1, 2 or 5 times a power of ten", () => {
   expect([0, 1, 1.4, 1.6, 3.4, 3.6, 7, 8, 14, 740, 760, 3731, 12_000].map(bucketRps)).toEqual(
@@ -76,7 +76,7 @@ test("api errors per second come from the 500 ms window and turn the tone hot", 
 });
 
 test("a down service is hot whatever its load", () => {
-  const r = nodeReadout("api", running(), status({ health: { api: "down", db: "up", loadgen: "up" } }));
+  const r = nodeReadout("api", running(), status({ health: { api: "down", sidecar: "unknown", db: "up", loadgen: "up" } }));
   expect([r.tone, r.health]).toEqual(["hot", "down"]);
 });
 
@@ -113,10 +113,35 @@ test("loadgen sparkline keeps the last 60 s at 1 Hz, ending on the newest point"
 test("before any run or poll every readout is unknown and muted", () => {
   for (const s of ["api", "db", "loadgen"] as const) {
     expect(nodeReadout(s, initialRun, EMPTY)).toEqual({
-      busy: null, busyLabel: "—", p99: null, waiting: null, waitingLabel: s === "api" ? "In Flight" : s === "db" ? "Waiting" : "Dropped",
-      errPerSec: null, tone: "muted", health: "unknown", sparkline: [],
+      busy: null, busyLabel: "—", busyTitle: "Busy", p99: null, waiting: null, waitingValue: "—",
+      waitingLabel: s === "api" ? "In Flight" : s === "db" ? "Waiting" : "Dropped", errPerSec: null, tone: "muted", health: "unknown", sparkline: [],
     });
   }
+});
+
+test("sidecar readout: sees the api's cpu over quota as reported by the sidecar, observer /proc", () => {
+  const apiCpu = [{ at: 1, cores: 0.1, quota: 0.5, nrThrottled: null }, { at: 2, cores: 0.45, quota: 0.5, nrThrottled: null }];
+  const s = status({
+    containers: [row("api", { cpuCores: 0.45, cpuQuotaCores: 0.5, memBytes: 10, memMaxBytes: 128, observer: "sidecar" }), row("sidecar")],
+    apiCpu, health: { api: "up", sidecar: "slow", db: "up", loadgen: "up" },
+  });
+  const r = nodeReadout("sidecar", running(), s);
+  expect(r).toMatchObject({
+    busyTitle: "Sees", busyLabel: "90 %", p99: null, waitingLabel: "Observer", waitingValue: "/proc", errPerSec: null, tone: "hot", health: "slow",
+  });
+  expect(r.busy).toBeCloseTo(0.9, 6);
+  expect(r.sparkline).toEqual([0.2, 0.9]);
+  expect(nodeReadout("sidecar", running(), status({ containers: [row("api", { cpuCores: 0.2, cpuQuotaCores: 0.5, observer: "sidecar" })] }))).toMatchObject({ busyLabel: "40 %", tone: "fill" });
+});
+
+test("sidecar sees nothing when the api reports its own stats", () => {
+  const apiCpu = [{ at: 1, cores: 0.1, quota: 0.5, nrThrottled: null }, { at: 2, cores: 0.4, quota: 0.5, nrThrottled: null }];
+  expect(nodeReadout("sidecar", running(), status({ apiCpu }))).toMatchObject({ busy: null, busyLabel: "—", tone: "muted", sparkline: [] });
+});
+
+test("waitingValue formats the count, or a dash when unknown", () => {
+  expect(nodeReadout("db", running(), status()).waitingValue).toBe("3\u2009865");
+  expect(nodeReadout("api", initialRun, EMPTY).waitingValue).toBe("—");
 });
 
 test("busyLabel is a whole percent", () => {
@@ -144,8 +169,8 @@ test("edgeReadout is zero without a window", () => {
 
 test("edgeReadout is danger when its target is hot, down or slow", () => {
   const e = { from: "loadgen", to: "api" };
-  expect(edgeReadout(e, running(), status({ health: { api: "slow", db: "up", loadgen: "up" } })).danger).toBe(true);
-  expect(edgeReadout(e, running(), status({ health: { api: "down", db: "up", loadgen: "up" } })).danger).toBe(true);
+  expect(edgeReadout(e, running(), status({ health: { api: "slow", sidecar: "unknown", db: "up", loadgen: "up" } })).danger).toBe(true);
+  expect(edgeReadout(e, running(), status({ health: { api: "down", sidecar: "unknown", db: "up", loadgen: "up" } })).danger).toBe(true);
   expect(edgeReadout(e, running(progress({ window: { reqs: 1, rps: 1, p50: 1, p99: 1, errors: 1 } })), status()).danger).toBe(true);
   expect(edgeReadout({ from: "api", to: "db" }, running(), status({ containers: [row("db", { poolBusy: 9, poolMax: 10 })] })).danger).toBe(true);
 });

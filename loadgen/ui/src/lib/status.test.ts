@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { PROJECTS, type Project } from "./projects";
-import { dbLoad, deriveStatus, isOutage, loadTone, nextSince, outageMessages, pillsFor, runWarning, type Container, type Health, type StatusView } from "./status";
+import { dbLoad, statusUrl, deriveStatus, isOutage, loadTone, nextSince, outageMessages, pillsFor, runWarning, showPills, type Container, type Health, type StatusView } from "./status";
 
 const row = (service: Container["service"], up: boolean): Container => ({
   service, up, cpuCores: null, cpuQuotaCores: null, nrThrottled: null, memBytes: null, memMaxBytes: null,
@@ -11,22 +11,22 @@ const apiDown = [row("api", false), row("db", false), row("loadgen", true)];
 
 test("deriveStatus maps up and down per service", () => {
   expect(deriveStatus(healthy, null)).toEqual({
-    health: { api: "up", db: "up", loadgen: "up" }, notes: { api: null, db: null, loadgen: null }, reason: null,
+    health: { api: "up", sidecar: "unknown", db: "up", loadgen: "up" }, notes: { api: null, sidecar: null, db: null, loadgen: null }, reason: null,
   });
-  expect(deriveStatus(dbDown, null).health).toEqual({ api: "up", db: "down", loadgen: "up" });
-  expect(deriveStatus(apiDown, null).health).toEqual({ api: "down", db: "down", loadgen: "up" });
+  expect(deriveStatus(dbDown, null).health).toEqual({ api: "up", sidecar: "unknown", db: "down", loadgen: "up" });
+  expect(deriveStatus(apiDown, null).health).toEqual({ api: "down", sidecar: "unknown", db: "down", loadgen: "up" });
 });
 
 test("deriveStatus is unknown everywhere before the first poll and when polling fails", () => {
-  const none = { api: null, db: null, loadgen: null };
-  expect(deriveStatus(null, null)).toEqual({ health: { api: "unknown", db: "unknown", loadgen: "unknown" }, notes: none, reason: null });
+  const none = { api: null, sidecar: null, db: null, loadgen: null };
+  expect(deriveStatus(null, null)).toEqual({ health: { api: "unknown", sidecar: "unknown", db: "unknown", loadgen: "unknown" }, notes: none, reason: null });
   expect(deriveStatus(null, "TypeError: Failed to fetch")).toEqual({
-    health: { api: "unknown", db: "unknown", loadgen: "unknown" }, notes: none, reason: "TypeError: Failed to fetch",
+    health: { api: "unknown", sidecar: "unknown", db: "unknown", loadgen: "unknown" }, notes: none, reason: "TypeError: Failed to fetch",
   });
 });
 
 test("deriveStatus treats a service missing from the payload as unknown", () => {
-  expect(deriveStatus([row("api", true)], null).health).toEqual({ api: "up", db: "unknown", loadgen: "unknown" });
+  expect(deriveStatus([row("api", true)], null).health).toEqual({ api: "up", sidecar: "unknown", db: "unknown", loadgen: "unknown" });
 });
 
 test("outageMessages gives one plain line per problem in the order api, db, loadgen", () => {
@@ -62,12 +62,12 @@ const slowApi: Container[] = [
 
 test("deriveStatus uses the server state, so a late api reads slow with its reason", () => {
   const v = deriveStatus(slowApi, null);
-  expect(v.health).toEqual({ api: "slow", db: "up", loadgen: "up" });
-  expect(v.notes).toEqual({ api: "api answered its probe in 2.4 s.", db: null, loadgen: null });
+  expect(v.health).toEqual({ api: "slow", sidecar: "unknown", db: "up", loadgen: "up" });
+  expect(v.notes).toEqual({ api: "api answered its probe in 2.4 s.", sidecar: null, db: null, loadgen: null });
 });
 
 test("deriveStatus falls back to the up boolean when a legacy payload lacks state", () => {
-  expect(deriveStatus(apiDown, null).health).toEqual({ api: "down", db: "down", loadgen: "up" });
+  expect(deriveStatus(apiDown, null).health).toEqual({ api: "down", sidecar: "unknown", db: "down", loadgen: "up" });
   expect(deriveStatus([{ ...row("api", true), state: "down" }], null).health.api).toBe("down");
 });
 
@@ -140,7 +140,7 @@ test("pillsFor is empty for an upcoming project: its containers do not run yet",
   expect(pillsFor(upcoming, { api: "up", db: "up", loadgen: "up" })).toEqual([]);
 });
 
-const offView = (api: Health, db: Health): StatusView => ({ health: { api, db, loadgen: "up" }, notes: { api: null, db: null, loadgen: null }, reason: null });
+const offView = (api: Health, db: Health): StatusView => ({ health: { api, sidecar: "unknown", db, loadgen: "up" }, notes: { api: null, sidecar: null, db: null, loadgen: null }, reason: null });
 
 test("an off service is not an outage, adds no banner line and no run warning", () => {
   const v = offView("off", "off");
@@ -157,4 +157,19 @@ test("pillsFor labels an off service OFF", () => {
   expect(pillsFor(baseline, { api: "off", db: "up", loadgen: "up" })[0]).toEqual(
     { service: "api", state: "off", label: "api OFF", ariaLabel: "api is off" },
   );
+});
+
+test("statusUrl asks for the given target, encoded", () => {
+  expect(statusUrl("k8s-sidecar")).toBe("/status?target=k8s-sidecar");
+  expect(statusUrl("a b")).toBe("/status?target=a%20b");
+});
+
+test("showPills: only the project the app polls shows pills", () => {
+  const [baseline, sidecar] = PROJECTS;
+  const readySidecar: Project = { ...sidecar, status: "ready" };
+  expect(showPills(baseline, "000")).toBe(true);
+  expect(showPills(readySidecar, "000")).toBe(false);
+  expect(showPills(readySidecar, "001")).toBe(true);
+  expect(showPills(baseline, "001")).toBe(false);
+  expect(showPills(baseline, null)).toBe(false);
 });

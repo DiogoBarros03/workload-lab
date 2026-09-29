@@ -14,15 +14,15 @@ export function linkRefs(text: string): RefPart[] {
   });
 }
 
-export type InlinePart = { kind: "text" | "link" | "strong" | "em"; text: string; href?: string };
+export type InlinePart = { kind: "text" | "link" | "strong" | "em" | "code"; text: string; href?: string };
 
-// **bold** or _italic_; underscores only count at word boundaries, so snake_case stays text.
-const EMPHASIS = /\*\*(?=\S)(.+?)(?<=\S)\*\*|(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)/;
-const KINDS = ["text", "strong", "em"] as const;
+// **bold**, _italic_ or `code`; underscores only count at word boundaries, so snake_case stays text.
+const EMPHASIS = /\*\*(?=\S)(.+?)(?<=\S)\*\*|(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)|\x60([^\x60]+)\x60/; // \x60 is a backtick
+const KINDS = ["text", "strong", "em", "code"] as const;
 
-// split with two groups yields [text, bold, italic, text, ...]; unused groups are undefined.
+// split with three groups yields [text, bold, italic, code, text, ...]; unused groups are undefined.
 const emphasisParts = (text: string): InlinePart[] =>
-  text.split(EMPHASIS).flatMap((s, i) => (s ? [{ kind: KINDS[i % 3], text: s }] : []));
+  text.split(EMPHASIS).flatMap((s, i) => (s ? [{ kind: KINDS[i % 4], text: s }] : []));
 
 // Links first, then emphasis inside the plain text between them.
 export const inlineParts = (text: string): InlinePart[] =>

@@ -8,30 +8,46 @@ export type Project = {
   chapter: string;
   question: string;
   status: "ready" | "upcoming";
+  // loadgen's name for where the api runs: compose, k8s, k8s-sidecar.
+  target: string;
+  runtime: Runtime;
+  // Always the runtime's own services array.
   services: readonly Service[];
 };
 
-// Every project so far belongs to Designing Distributed Systems.
-const p = (id: string, slug: string, title: string, chapter: number, question: string, services: readonly Service[]): Project =>
-  ({ id, bookId: "dds", slug, title, chapter: `Ch. ${chapter}`, question, status: id === "000" ? "ready" : "upcoming", services });
+export type Runtime =
+  | { kind: "compose"; services: readonly Service[] }
+  | { kind: "kind"; overlay: string; services: readonly Service[] };
+
+// The compose target runs on compose; every other target is a kind overlay.
+const runtimeOf = (id: string, slug: string, target: string, services: readonly Service[]): Runtime =>
+  target === "compose" ? { kind: "compose", services } : { kind: "kind", overlay: `${id}-${slug}`, services };
 
 // Planned containers; later projects will refine their lists.
 const CORE: readonly Service[] = ["api", "db", "loadgen"];
 
+const READY = ["000", "001"];
+
+// Every project so far belongs to Designing Distributed Systems.
+const p = (id: string, slug: string, title: string, chapter: number, question: string, target = "k8s", services = CORE): Project => ({
+  id, bookId: "dds", slug, title, chapter: `Ch. ${chapter}`, question, status: READY.includes(id) ? "ready" : "upcoming",
+  target, runtime: runtimeOf(id, slug, target, services), services,
+});
+
 // One project per step of the README roadmap.
 export const PROJECTS: readonly Project[] = [
-  p("000", "baseline", "Baseline", 1, "How far does one small container get?", CORE),
-  p("001", "sidecar", "Sidecar", 2, "Can logging and metrics be added without touching the API image?", CORE),
-  p("002", "ambassador", "Ambassador", 3, "Can retries, timeouts and a circuit breaker live outside the app?", CORE),
-  p("003", "adapter", "Adapter", 4, "Can the metrics interface be normalised across two implementations?", CORE),
-  p("004", "replicated-service", "Replicated load-balanced service", 5, "Do N replicas behind a load balancer move the knee, and what does the DB do?", CORE),
-  p("005", "sharded-service", "Sharded service", 6, "When one DB is the wall, does sharding by key help, and what does it cost?", CORE),
-  p("006", "scatter-gather", "Scatter/gather", 7, "Fan a request across shards and merge: tail latency amplification.", CORE),
-  p("007", "faas", "FaaS", 8, "Same CRUD as functions: cold starts vs the always-on baseline.", CORE),
-  p("008", "ownership-election", "Ownership election", 9, "Who runs the singleton job when there are replicas?", CORE),
-  p("009", "work-queue", "Work queue", 10, "Move writes off the request path: latency vs durability.", CORE),
-  p("010", "event-driven-batch", "Event-driven batch", 11, "Chain queues: fan-out, fan-in, filter.", CORE),
-  p("011", "coordinated-batch", "Coordinated batch", 12, "Join and reduce across workers.", CORE),
+  p("000", "baseline", "Baseline", 1, "How far does one small container get?", "compose"),
+  p("001", "sidecar", "Sidecar", 2, "Can logging and metrics be added without touching the API image?", "k8s-sidecar", ["api", "sidecar", "db", "loadgen"]),
+  p("002", "ambassador", "Ambassador", 3, "Can retries, timeouts and a circuit breaker live outside the app?"),
+  p("003", "adapter", "Adapter", 4, "Can the metrics interface be normalised across two implementations?"),
+  p("004", "replicated-service", "Replicated load-balanced service", 5, "Do N replicas behind a load balancer move the knee, and what does the DB do?"),
+  p("005", "sharded-service", "Sharded service", 6, "When one DB is the wall, does sharding by key help, and what does it cost?"),
+  p("006", "scatter-gather", "Scatter/gather", 7, "Fan a request across shards and merge: tail latency amplification."),
+  p("007", "faas", "FaaS", 8, "Same CRUD as functions: cold starts vs the always-on baseline."),
+  p("008", "ownership-election", "Ownership election", 9, "Who runs the singleton job when there are replicas?"),
+  p("009", "work-queue", "Work queue", 10, "Move writes off the request path: latency vs durability."),
+  p("010", "event-driven-batch", "Event-driven batch", 11, "Chain queues: fan-out, fan-in, filter."),
+  p("011", "coordinated-batch", "Coordinated batch", 12, "Join and reduce across workers."),
 ];
 
 export const hrefOf = (project: Project) => `#/${project.bookId}/${project.id}-${project.slug}`;
@@ -54,3 +70,6 @@ export const routeFor = (hash: string): Route =>
     : { kind: "project", project: PROJECTS.find((x) => hrefOf(x) === hash || legacyHrefOf(x) === hash) ?? DEFAULT };
 
 export const projectOf = (route: Route): Project | null => (route.kind === "project" ? route.project : null);
+
+// Upcoming projects run nothing, so their pages watch the first ready project's lab.
+export const liveProject = (project: Project | null): Project | null => (project?.status === "upcoming" ? DEFAULT : project);

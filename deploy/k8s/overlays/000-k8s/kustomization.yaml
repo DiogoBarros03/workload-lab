@@ -1,0 +1,9 @@
+# Project 000 on Kubernetes: the baseline shape, labelled.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+labels:
+  - pairs:
+      lab/project: "000"
+    includeTemplates: true

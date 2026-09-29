@@ -1,0 +1,21 @@
+# Local Kubernetes for the lab: 1 control-plane + 2 workers as rootless podman containers.
+# Created by lab/cluster.sh (cluster name "lab"). NodePorts 31000-31010 reach the host;
+# a NodePort Service's nodePort must equal the containerPort below.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - {containerPort: 31000, hostPort: 31000, protocol: TCP}
+      - {containerPort: 31001, hostPort: 31001, protocol: TCP}
+      - {containerPort: 31002, hostPort: 31002, protocol: TCP}
+      - {containerPort: 31003, hostPort: 31003, protocol: TCP}
+      - {containerPort: 31004, hostPort: 31004, protocol: TCP}
+      - {containerPort: 31005, hostPort: 31005, protocol: TCP}
+      - {containerPort: 31006, hostPort: 31006, protocol: TCP}
+      - {containerPort: 31007, hostPort: 31007, protocol: TCP}
+      - {containerPort: 31008, hostPort: 31008, protocol: TCP}
+      - {containerPort: 31009, hostPort: 31009, protocol: TCP}
+      - {containerPort: 31010, hostPort: 31010, protocol: TCP}
+  - role: worker
+  - role: worker

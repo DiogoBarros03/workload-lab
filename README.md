@@ -14,7 +14,7 @@ The browser UI at http://localhost:3200 has a catalogue in its sidebar:
 
 | Category | Holds | Status |
 |---|---|---|
-| **Books** | A book's ideas, one project per chapter, each measured on the shared lab stack | *Designing Distributed Systems* (Brendan Burns), project 000 done, 001–011 planned |
+| **Books** | A book's ideas, one project per chapter, each measured on the shared lab stack | *Designing Distributed Systems* (Brendan Burns), projects 000–001 done, 002–011 planned |
 | **Projects** | Hands-on builds that are not tied to a book: a technical decision, a system, a spike | Empty, waiting for the first one |
 | **Classes** | Notes and exercises from courses, turned into runnable experiments | Empty |
 | **Technologies** | One tool or runtime at a time: what it is for, where it breaks, how it compares | Empty |
@@ -48,8 +48,10 @@ The rest of this file is the technical reference for the shared lab stack every 
 | Path | What |
 |---|---|
 | `api/` | Node 24 + Fastify + `pg`. CRUD over a small bookstore: `authors` and their `books`. TypeScript run directly, no build step. |
+| `sidecar/` | Project 001's `stats-sidecar`: Node 24 + Fastify + `pg`, runs in the api pod with a shared process namespace, reads the api's cpu and memory from `/proc` and Postgres load itself, serves `/stats` (with `observer: "sidecar"`, no throttling, `pool: null`) and `/health` on port 3001, NodePort 31001 via `deploy/k8s/overlays/001-sidecar/`. |
 | `db/init.sql` | The schema. Constraints (unique ISBN, foreign key, cascade, checks) live in the database, not in the app. |
 | `compose.yaml` | The whole stack: `db`, `api`, `loadgen`, and on-demand services `test`, `loadgen-test` and `k6`. Limits are set here. |
+| `deploy/k8s/` | Kubernetes manifests for the kind cluster `lab`: kustomize `base/` (`db`, `api` with the compose limits, api on NodePort 31000) and one overlay per project, `overlays/000-k8s/` for the baseline. Images come from `lab/images.sh all`. |
 | `loadgen/` | Load generator and the catalogue UI on http://localhost:3200. Open model (requests per second for a duration) in the UI, closed model (requests at a fixed concurrency) over HTTP. Own container, no limits, so it never shares the API's quota. |
 | `loadtest/crud.js` | k6 script. Fixed request rate (open model), one iteration = create author, create book, read, update, list, delete author. |
 | `results/` | One markdown file per experiment, raw k6 summaries under `results/raw/`. |
@@ -84,8 +86,15 @@ Unknown fields in a body are dropped. While the database is unreachable, routes 
 
 `npm run lab` on the host starts the UI (http://localhost:3200) and the lab operator on
 127.0.0.1:3300; the containers for a project are started and stopped from its page. The operator
-runs on the host so no container ever gets the podman socket. `npm run lab:test` runs its tests
-(`LAB_LIVE=1` adds a live start/stop of api and db). The `podman compose` commands below remain the
+runs on the host so no container ever gets the podman socket. It also drives the kind cluster `lab`
+(every kubectl call names `--context kind-lab`): `GET /cluster` gives `{exists, ready: "n/total",
+overlays: {<name>: {applied, pods: [{name, node, containers: [{name, state, ready, restarts}]}]}}}`
+for each directory under `deploy/k8s/overlays/`; `POST /cluster/up` runs `lab/cluster.sh up` then
+`lab/images.sh all` synchronously (600 s each); `POST /cluster/down` runs `lab/cluster.sh down`;
+`POST /cluster/apply {overlay}` renders the overlay, applies it and waits on each deployment's rollout
+(180 s); `POST /cluster/delete {overlay}` deletes the render. Each answers with the `GET /cluster`
+body; overlay names must be existing directories. `npm run lab:test` runs its tests
+(`LAB_LIVE=1` adds a live start/stop of api and db and a 3-ready-node check on the cluster). The `podman compose` commands below remain the
 manual alternative.
 
 Requires podman with the compose provider (`docker compose` also works as an alias) and the
@@ -123,9 +132,21 @@ npm run ui:build       # writes ui/dist; rebuild the loadgen image to ship it
 | Method | Path | Answers |
 |---|---|---|
 | `GET` | `/` | the UI |
-| `POST` | `/run` closed `{op, requests, concurrency}` (`mode` omitted or `"closed"`) or open `{mode: "open", op, rps, durationSec, maxInFlight?}` (rps 1..5000, durationSec 1..300, maxInFlight 1..20000, default 10000) | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs, window}` (open adds `dropped`, `targetRps`; `inFlight` is observed), where `window` is `{reqs, rps, p50, p99, errors}` for requests finished since the previous `progress` (p50/p99 `null` when empty; errors = network failures and 4xx/5xx), then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms; open adds `dropped`, `targetRps`, `maxInFlightSeen`, and `rps` is the achieved rate); a request that would exceed `maxInFlight` is dropped, not started; seeding gives each call 5 s, and a failure ends the stream with one `error` event `seed failed: ...`; `409` while a run is active |
-| `GET` | `/status` | `{sampledAtMs, containers: [{service, state, up, reason, cpuCores, cpuQuotaCores, nrThrottled, memBytes, memMaxBytes}]}` for api, db, loadgen, the latest snapshot of a sampler that runs every 2 s whoever polls, so every client sees the same rates; each service reads its own cgroup, no runtime socket. `state` is `up`, `slow` or `down` (`up` is `state !== "down"`, `reason` one sentence or null): the api is `slow` when its 3 s probe of `/health` and `/stats` times out within 30 s of the last success, `down` on connection refused, a hostname that does not resolve within 1 s, an HTTP error, or timeouts for 30 s; the db is `down` when `/health` says 503 or the api is down, `slow` while the api is slow. The api answers `/health` and `/stats` from a one-connection admin pool, so a saturated traffic pool does not delay them. The db row adds `connUsed, connMax, activeBackends, waitingBackends, poolBusy, poolMax, poolWaiting` and per-second `commitsPerSec, rowsPerSec, cacheHitRatio` (null on the first sample or a counter reset) |
-| `POST` | `/reset` | `{deleted: n}` authors removed; `409` while a run is active |
+| `POST` | `/run` closed `{op, requests, concurrency, target?}` (`mode` omitted or `"closed"`) or open `{mode: "open", op, rps, durationSec, maxInFlight?, target?}` (`target` names an entry of the `TARGETS` env, default `compose`, unknown `400`; rps 1..5000, durationSec 1..300, maxInFlight 1..20000, default 10000) | Server-Sent Events: `progress` every 500 ms `{done, inFlight, elapsedMs, window}` (open adds `dropped`, `targetRps`; `inFlight` is observed), where `window` is `{reqs, rps, p50, p99, errors}` for requests finished since the previous `progress` (p50/p99 `null` when empty; errors = network failures and 4xx/5xx), then one `result` (req/s, status counts, network errors, latency p50/p95/p99/max/mean in ms; open adds `dropped`, `targetRps`, `maxInFlightSeen`, and `rps` is the achieved rate); a request that would exceed `maxInFlight` is dropped, not started; seeding gives each call 5 s, and a failure ends the stream with one `error` event `seed failed: ...`; `409` while a run is active |
+| `GET` | `/status?target=` | For the named target (default `compose`, unknown `400`; its own sampler, started on first request, probes the target's `base` `/health` and its `stats` URL; a `stats` URL on another origin adds a `sidecar` row from that origin's `/health`, and a stats body with `observer` passes it to the api row): `{sampledAtMs, containers: [{service, state, up, reason, cpuCores, cpuQuotaCores, nrThrottled, memBytes, memMaxBytes}]}` for api, db, loadgen, the latest snapshot of a sampler that runs every 2 s whoever polls, so every client sees the same rates; each service reads its own cgroup, no runtime socket. `state` is `up`, `slow` or `down` (`up` is `state !== "down"`, `reason` one sentence or null): the api is `slow` when its 3 s probe of `/health` and `/stats` times out within 30 s of the last success, `down` on connection refused, a hostname that does not resolve within 1 s, an HTTP error, or timeouts for 30 s; the db is `down` when `/health` says 503 or the api is down, `slow` while the api is slow. The api answers `/health` and `/stats` from a one-connection admin pool, so a saturated traffic pool does not delay them. The db row adds `connUsed, connMax, activeBackends, waitingBackends, poolBusy, poolMax, poolWaiting` and per-second `commitsPerSec, rowsPerSec, cacheHitRatio` (null on the first sample or a counter reset) |
+| `POST` | `/reset?target=` | `{deleted: n}` authors removed; `409` while a run is active |
+
+### Kubernetes
+
+`lab/cluster.sh up` creates the kind cluster `lab` from `lab/kind.yaml`: three rootless podman
+containers acting as one control-plane and two worker nodes, with NodePorts 31000–31010 published on
+the host, so the same cluster comes back on any machine that runs the script. `lab/cluster.sh
+down|status|load-image <image:tag>` deletes it, lists the nodes and a pod count, or copies a local
+podman image into every node (tag it without `latest` and use `imagePullPolicy: IfNotPresent`). The
+host needs `pids_limit = 65536` under `[containers]` in `~/.config/containers/containers.conf`
+(delegating `cpuset` and `io` to the user slice is optional); pod CPU and memory limits are enforced,
+but all three nodes share one host's CPU and cross-node traffic never leaves the machine, so its
+latency is not real.
 
 ## Four examples
 
@@ -173,7 +194,7 @@ One project per chapter, in chapter order. Project pages live in the UI under Bo
 | Step | Book | Question the step answers |
 |---|---|---|
 | 000 | Ch. 1 | Baseline: how far does one small container get? **Done.** |
-| 001 | Ch. 2 Sidecar | Can logging/metrics be added without touching the API image? |
+| 001 | Ch. 2 Sidecar | Can logging/metrics be added without touching the API image? **Done.** |
 | 002 | Ch. 3 Ambassador | Can retries, timeouts and a circuit breaker live outside the app? |
 | 003 | Ch. 4 Adapter | Can the metrics interface be normalised across two implementations? |
 | 004 | Ch. 5 Replicated load-balanced service | Do N replicas behind a load balancer move the knee, and what does the DB do? |

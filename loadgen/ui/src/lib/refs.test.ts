@@ -63,3 +63,19 @@ test("inlineParts leaves underscores inside words and unclosed markers literal",
 test("inlineParts closes italics before punctuation", () => {
   expect(inlineParts("ask _how do we scale?_")).toEqual([{ kind: "text", text: "ask " }, { kind: "em", text: "how do we scale?" }]);
 });
+
+test("inlineParts turns `code` spans into code, one or several", () => {
+  expect(inlineParts("serves `/stats` now")).toEqual([
+    { kind: "text", text: "serves " }, { kind: "code", text: "/stats" }, { kind: "text", text: " now" },
+  ]);
+  expect(inlineParts("`/proc` or `results/000-k8s.md`")).toEqual([
+    { kind: "code", text: "/proc" }, { kind: "text", text: " or " }, { kind: "code", text: "results/000-k8s.md" },
+  ]);
+});
+
+test("inlineParts leaves an unclosed backtick literal and keeps backticks inside bold literal", () => {
+  expect(inlineParts("a `open tick")).toEqual([{ kind: "text", text: "a `open tick" }]);
+  expect(inlineParts("see **the `x` flag** here")).toEqual([
+    { kind: "text", text: "see " }, { kind: "strong", text: "the `x` flag" }, { kind: "text", text: " here" },
+  ]);
+});

@@ -10,11 +10,14 @@ function toAction(e: SseEvent): RunAction | null {
   return null;
 }
 
-async function openRun(config: RunConfig, signal: AbortSignal) {
+// The target names where loadgen sends the run's traffic.
+export const runBody = (config: RunConfig, target: string) => JSON.stringify({ ...config, target });
+
+async function openRun(config: RunConfig, target: string, signal: AbortSignal) {
   const res = await fetch("/run", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(config),
+    body: runBody(config, target),
     signal,
   });
   if (res.ok && res.body) return res.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -37,7 +40,7 @@ async function consume(reader: ReadableStreamDefaultReader<string>, dispatch: (a
   if (!ended) throw new Error("the run ended without a result");
 }
 
-export function useRun(onResult: (config: RunConfig, result: Result) => void) {
+export function useRun(target: string, onResult: (config: RunConfig, result: Result) => void) {
   const [state, dispatch] = useReducer(runReducer, initialRun);
   const ctl = useRef<AbortController | null>(null);
   // Leaving the page cancels its run on the server too.
@@ -52,12 +55,12 @@ export function useRun(onResult: (config: RunConfig, result: Result) => void) {
       if (a.type === "result") onResult(config, a.result);
     };
     try {
-      await consume(await openRun(config, abort.signal), forward);
+      await consume(await openRun(config, target, abort.signal), forward);
     } catch (err) {
       // Stop already moved the run to idle; the abort error is expected.
       if (!abort.signal.aborted) dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
     }
-  }, [onResult]);
+  }, [target, onResult]);
 
   const stop = useCallback(() => {
     ctl.current?.abort();

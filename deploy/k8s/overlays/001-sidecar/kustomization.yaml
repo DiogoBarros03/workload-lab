@@ -1,0 +1,13 @@
+# Project 001: a stats sidecar watches the unchanged api through a shared process namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: lab
+resources:
+  - ../../base
+  - sidecar-service.yaml
+patches:
+  - path: api-sidecar-patch.yaml
+labels:
+  - pairs:
+      lab/project: "001"
+    includeTemplates: true

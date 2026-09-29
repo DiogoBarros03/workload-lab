@@ -4,19 +4,21 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
-import { buildApp } from "./server.ts";
+import { buildApp, parseTargets, targetsFromEnv, type Targets } from "./server.ts";
 
 process.env.LOG_LEVEL = "silent";
 const baseUrl = process.env.BASE_URL;
 if (!baseUrl) throw new Error("BASE_URL is required");
+// One compose target at `base`, stats under it, as BASE_URL alone defines.
+const only = (base: string): Targets => ({ compose: { base, stats: `${base}/stats` } });
 // Unreachable target: a port just released, so connecting is refused.
 const closed = createServer();
 await once(closed.listen(0, "127.0.0.1"), "listening");
 const closedPort = (closed.address() as AddressInfo).port;
 await once(closed.close(), "close");
-const app = buildApp(`http://127.0.0.1:${closedPort}`);
+const app = buildApp(only(`http://127.0.0.1:${closedPort}`));
 // Live target: the API from compose.
-const live = buildApp(baseUrl);
+const live = buildApp(only(baseUrl));
 after(() => Promise.all([app.close(), live.close()]));
 
 const runWith = (payload: object) => app.inject({ method: "POST", url: "/run", payload });
@@ -83,7 +85,7 @@ test("POST /run reports a target failure as an error event", async () => {
 test("a run against a target that never answers fails within 6 s and frees the slot", { timeout: 15_000 }, async (t) => {
   const stub = createServer(() => {});
   await once(stub.listen(0, "127.0.0.1"), "listening");
-  const target = buildApp(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`);
+  const target = buildApp(only(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`));
   t.after(async () => {
     stub.closeAllConnections();
     stub.close();
@@ -192,7 +194,7 @@ test("GET /status reports api and db down, not an error, when the api is unreach
 });
 
 test("GET /status reports an api whose hostname does not resolve as down within about 1 s", { timeout: 15_000 }, async () => {
-  const target = buildApp("http://api.invalid:3000");
+  const target = buildApp(only("http://api.invalid:3000"));
   try {
     const started = Date.now();
     const res = await target.inject({ method: "GET", url: "/status" });
@@ -216,7 +218,7 @@ test("GET /status shows an api that stops answering after a success as slow, aft
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
   });
   await once(stub.listen(0, "127.0.0.1"), "listening");
-  const target = buildApp(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`, { statusIntervalMs: 60_000 });
+  const target = buildApp(only(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`), { statusIntervalMs: 60_000 });
   // A fresh sample, then /status must serve exactly it.
   const rows = async () => {
     const fresh = await target.statusSampler.sampleOnce();
@@ -275,7 +277,7 @@ test("GET /status maps postgres load and the api pool onto the db row", async ()
 });
 
 test("GET /status serves one sampled snapshot to every poller, stamped with sampledAtMs", async () => {
-  const target = buildApp(baseUrl, { statusIntervalMs: 60_000 });
+  const target = buildApp(only(baseUrl), { statusIntervalMs: 60_000 });
   try {
     const before = Date.now();
     const polls = await Promise.all([1, 2, 3].map(() => target.inject({ method: "GET", url: "/status" })));
@@ -290,7 +292,7 @@ test("GET /status serves one sampled snapshot to every poller, stamped with samp
 });
 
 test("GET /status resamples on the configured interval", async () => {
-  const target = buildApp(baseUrl, { statusIntervalMs: 100 });
+  const target = buildApp(only(baseUrl), { statusIntervalMs: 100 });
   try {
     const first = (await target.inject({ method: "GET", url: "/status" })).json();
     await sleep(350);
@@ -299,5 +301,112 @@ test("GET /status resamples on the configured interval", async () => {
     assert.equal(typeof later.containers.find((c: { service: string }) => c.service === "api").cpuCores, "number");
   } finally {
     await target.close();
+  }
+});
+
+test("GET /status adds an up sidecar row when the stats URL has its own origin answering /health", async () => {
+  const stub = createServer((req, res) => {
+    const body = req.url === "/health" ? { status: "ok" } : { sampledAtMs: Date.now(), db: null, pool: null, observer: "sidecar" };
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
+  });
+  await once(stub.listen(0, "127.0.0.1"), "listening");
+  const statsOrigin = `http://127.0.0.1:${(stub.address() as AddressInfo).port}`;
+  const target = buildApp({ compose: { base: baseUrl, stats: `${statsOrigin}/stats` } }, { statusIntervalMs: 60_000 });
+  try {
+    const rows = Object.fromEntries((await target.statusSampler.sampleOnce()).containers.map((c) => [c.service, c]));
+    assert.deepEqual(Object.keys(rows), ["api", "db", "loadgen", "sidecar"]);
+    assert.deepEqual([rows.sidecar.state, rows.sidecar.reason, rows.api.observer], ["up", null, "sidecar"]);
+  } finally {
+    await target.close();
+    stub.close();
+  }
+});
+
+test("parseTargets reads names to base and stats URLs", () => {
+  const json = JSON.stringify({
+    compose: { base: "http://api:3000", stats: "http://api:3000/stats" },
+    "k8s-sidecar": { base: "http://host.containers.internal:31000", stats: "http://host.containers.internal:31001/stats" },
+  });
+  assert.deepEqual(parseTargets(json), {
+    compose: { base: "http://api:3000", stats: "http://api:3000/stats" },
+    "k8s-sidecar": { base: "http://host.containers.internal:31000", stats: "http://host.containers.internal:31001/stats" },
+  });
+});
+
+test("parseTargets fails with a message naming what is wrong", () => {
+  const ok = { base: "http://a:1", stats: "http://a:1/stats" };
+  const bad: [string, RegExp][] = [
+    ["{", /TARGETS is not JSON/],
+    ["[]", /TARGETS must be an object/],
+    [JSON.stringify({ k8s: ok }), /TARGETS needs a "compose" target/],
+    [JSON.stringify({ compose: ok, K8s: ok }), /target name "K8s"/],
+    [JSON.stringify({ compose: ok, "a b": ok }), /target name "a b"/],
+    [JSON.stringify({ compose: { base: "http://a:1" } }), /compose.stats must be an absolute http URL/],
+    [JSON.stringify({ compose: { ...ok, base: "api:3000" } }), /compose.base must be an absolute http URL/],
+    [JSON.stringify({ compose: { ...ok, base: "ftp://a/x" } }), /compose.base must be an absolute http URL/],
+    [JSON.stringify({ compose: { ...ok, base: "http://a:1/" } }), /compose.base must not end with \//],
+    [JSON.stringify({ compose: { ...ok, extra: 1 } }), /compose has unknown key "extra"/],
+    [JSON.stringify({ compose: "http://a:1" }), /compose must be \{base, stats\}/],
+  ];
+  for (const [json, message] of bad) assert.throws(() => parseTargets(json), message, json);
+});
+
+test("targetsFromEnv prefers TARGETS, falls back to BASE_URL as compose, else fails", () => {
+  const targets = JSON.stringify({ compose: { base: "http://x:1", stats: "http://y:2/stats" } });
+  assert.deepEqual(targetsFromEnv({ TARGETS: targets, BASE_URL: "http://api:3000" }), {
+    compose: { base: "http://x:1", stats: "http://y:2/stats" },
+  });
+  assert.deepEqual(targetsFromEnv({ BASE_URL: "http://api:3000" }), {
+    compose: { base: "http://api:3000", stats: "http://api:3000/stats" },
+  });
+  assert.throws(() => targetsFromEnv({ BASE_URL: "api" }), /compose.base must be an absolute http URL/);
+  assert.throws(() => targetsFromEnv({}), /TARGETS or BASE_URL is required/);
+});
+
+test("POST /run and /reset refuse an unknown or malformed target with 400 and run nothing", async () => {
+  const small = { op: "read", requests: 1, concurrency: 1 };
+  for (const target of ["nope", "Bad!"]) {
+    const run = await runWith({ ...small, target });
+    assert.equal(run.statusCode, 400, run.body);
+    const open = await runWith({ mode: "open", op: "read", rps: 1, durationSec: 1, target });
+    assert.equal(open.statusCode, 400, open.body);
+    const res = await app.inject({ method: "POST", url: `/reset?target=${encodeURIComponent(target)}` });
+    assert.equal(res.statusCode, 400, res.body);
+  }
+  assert.equal((await runWith({ ...small, target: "compose" })).statusCode, 200);
+});
+
+test("GET /status?target= probes that target's base for health and its stats URL for stats", async () => {
+  const stats = { sampledAtMs: 0, db: null, pool: { max: 10, total: 0, idle: 0, waiting: 0 } };
+  const answer = (path: string, body: object) => createServer((req, res) => {
+    if (req.url !== path) return res.writeHead(404).end("{}");
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
+  });
+  const health = answer("/health", { status: "ok" });
+  // Serves stats but no /health, so its sidecar row reads down.
+  const sidecar = answer("/stats", stats);
+  await Promise.all([once(health.listen(0, "127.0.0.1"), "listening"), once(sidecar.listen(0, "127.0.0.1"), "listening")]);
+  const port = (s: typeof health) => (s.address() as AddressInfo).port;
+  const k8s = { base: `http://127.0.0.1:${port(health)}`, stats: `http://127.0.0.1:${port(sidecar)}/stats` };
+  const target = buildApp({ ...only(`http://127.0.0.1:${closedPort}`), k8s }, { statusIntervalMs: 60_000 });
+  const rows = async (url: string) => {
+    const res = await target.inject({ method: "GET", url });
+    assert.equal(res.statusCode, 200, res.body);
+    return Object.fromEntries(res.json().containers.map((c: { service: string }) => [c.service, c]));
+  };
+  try {
+    const k8sRows = await rows("/status?target=k8s");
+    assert.deepEqual(Object.keys(k8sRows), ["api", "db", "loadgen", "sidecar"]);
+    assert.equal(k8sRows.api.state, "up");
+    assert.deepEqual([k8sRows.sidecar.state, k8sRows.sidecar.reason], ["down", "The sidecar answered with an error (health 404)."]);
+    assert.equal(k8sRows.sidecar.memBytes, null);
+    const composeRows = await rows("/status");
+    assert.deepEqual([Object.keys(composeRows), composeRows.api.state], [["api", "db", "loadgen"], "down"]);
+    assert.equal((await rows("/status?target=compose")).api.state, "down");
+    assert.equal((await target.inject({ method: "GET", url: "/status?target=nope" })).statusCode, 400);
+  } finally {
+    await target.close();
+    health.close();
+    sidecar.close();
   }
 });
