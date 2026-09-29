@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtInt, fmtMs, fmtSec } from "@/lib/format";
-import { progressFraction, type Progress, type RunConfig, type RunState } from "@/lib/run";
+import { INITIAL_FORM, progressFraction, type Progress, type RunConfig, type RunState } from "@/lib/run";
 import { LiveChart } from "./LiveChart";
 import { Notice } from "./Notice";
 import { ProgressBar } from "./ProgressBar";
@@ -36,8 +36,25 @@ function WindowStats({ p, target }: { p: Progress | null; target: number }) {
   );
 }
 
+// Before any run: axes only, sized like the default run, so the row never looks empty.
+function Idle() {
+  return (
+    <>
+      <p className="text-meta text-muted-foreground">Start a run to see throughput and latency here.</p>
+      <LiveChart series={[]} target={0} durationSec={Number(INITIAL_FORM.duration)} />
+    </>
+  );
+}
+
 export function LiveCard({ run, className }: { run: RunState; className?: string }) {
-  if (!run.config) return null;
+  if (!run.config) {
+    return (
+      <Card className={className}>
+        <CardHeader><CardTitle>Live</CardTitle></CardHeader>
+        <CardContent className="flex flex-col gap-6"><Idle /></CardContent>
+      </Card>
+    );
+  }
   return (
     <Card className={className}>
       <CardHeader><CardTitle>Live</CardTitle></CardHeader>

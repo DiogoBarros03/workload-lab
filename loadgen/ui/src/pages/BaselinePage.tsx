@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import baselineJson from "../../../../results/000-baseline.json";
-import { ContainersCard } from "@/components/ContainersCard";
 import { ContainersControl } from "@/components/ContainersControl";
 import { HistoryTable } from "@/components/HistoryTable";
 import { LiveArchDiagram } from "@/components/LiveArchDiagram";
@@ -69,9 +68,8 @@ export function BaselinePage({ project, status, operator }: { project: Project; 
               <QuickTests quick={lesson.quick} baseline={BASELINE} disabled={running || blocked} onRun={quickRun} />
             </>}
           />
-          <ContainersCard status={status} className="min-w-0 lg:col-span-3" />
+          <LiveCard run={run} className="min-w-0 lg:col-span-3" />
         </div>
-        <LiveCard run={run} />
         <ResultCard result={run.result} />
         <MeasuredCard baseline={BASELINE} quick={lesson.quick} running={running} onRun={runThis} />
         <HistoryTable entries={history.entries} onClear={history.clear} />

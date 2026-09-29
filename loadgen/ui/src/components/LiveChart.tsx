@@ -51,7 +51,7 @@ export function LiveChart({ series, target, durationSec }: Props) {
             <XAxis {...AXIS} dataKey="t" type="number" domain={[0, xMax]} ticks={secondTicks(xMax)} unit=" s" />
             <YAxis {...AXIS} yAxisId="left" domain={[0, left.at(-1) as number]} ticks={left} width={44} allowDataOverflow />
             <YAxis {...AXIS} yAxisId="right" orientation="right" domain={[0, right.at(-1) as number]} ticks={right} width={44} allowDataOverflow />
-            <ReferenceLine yAxisId="left" y={target} stroke="var(--chart-ref)" strokeDasharray="4 4" label={{ ...REF_LABEL, value: "target", position: "insideBottomLeft" }} />
+            {target > 0 && <ReferenceLine yAxisId="left" y={target} stroke="var(--chart-ref)" strokeDasharray="4 4" label={{ ...REF_LABEL, value: "target", position: "insideBottomLeft" }} />}
             <Tooltip content={Tip} cursor={{ stroke: "var(--line)" }} isAnimationActive={false} />
             <Line yAxisId="left" dataKey="rps" stroke="var(--chart-rps)" strokeWidth={1.75} dot={flagDot("error")} activeDot={{ r: 3 }} isAnimationActive={false} />
             <Line yAxisId="right" dataKey="p99" stroke="var(--chart-p99)" strokeWidth={1} dot={false} activeDot={{ r: 2.5 }} connectNulls={false} isAnimationActive={false} />
