@@ -15,23 +15,17 @@ const MAX_DURATION_SEC = 300;
 type Props = {
   project: Project; form: RunForm; onForm: (f: RunForm) => void; runRef: React.Ref<HTMLButtonElement>;
   running: boolean; warning: string | null; onRun: (c: RunConfig) => void; onStop: () => void; className?: string;
-  control?: React.ReactNode; blocked?: boolean;
+  control?: React.ReactNode; phase: string | null; busy: boolean;
 };
 
-// Stopped containers are expected, so their hint is muted, not red.
-function Warning({ blocked, warning }: { blocked: boolean; warning: string | null }) {
-  if (blocked) return <p className="text-label text-muted-foreground">Start the containers to run.</p>;
-  return warning && <p className="text-meta text-red-fg">{warning}</p>;
-}
-
-export function RunCard({ project, form, onForm, runRef, running, warning, onRun, onStop, className, control, blocked = false }: Props) {
+export function RunCard({ project, form, onForm, runRef, running, warning, onRun, onStop, className, control, phase, busy }: Props) {
   const { op, rps, duration } = form;
   const set = (patch: Partial<RunForm>) => onForm({ ...form, ...patch });
   const reset = useReset(project);
-  const valid = !blocked && validCount(rps, MAX_RPS) && validCount(duration, MAX_DURATION_SEC);
+  const valid = !busy && validCount(rps, MAX_RPS) && validCount(duration, MAX_DURATION_SEC);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (valid && !running) onRun({ mode: "open", op, rps: +rps, durationSec: +duration });
+    if (valid && !running && phase === null) onRun({ mode: "open", op, rps: +rps, durationSec: +duration });
   };
   return (
     <Card id="run-card" className={cn("scroll-mt-6", className)}>
@@ -45,8 +39,8 @@ export function RunCard({ project, form, onForm, runRef, running, warning, onRun
             id="duration" label="Duration" unit="s" scale="linear"
             value={duration} max={MAX_DURATION_SEC} disabled={running} onChange={(v) => set({ duration: v })}
           />
-          <RunActions runRef={runRef} running={running} valid={valid} resetBusy={reset.busy} onStop={onStop} onReset={reset.reset} />
-          <Warning blocked={blocked} warning={warning} />
+          <RunActions runRef={runRef} running={running} valid={valid} phase={phase} resetBusy={reset.busy} onStop={onStop} onReset={reset.reset} />
+          {warning && <p className="text-meta text-red-fg">{warning}</p>}
           <Notice error={reset.error} note={reset.note} />
         </form>
       </CardContent>

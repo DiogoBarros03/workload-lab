@@ -8,7 +8,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseCpuMax, parseCpuStat, parseMemMax, readCgroup } from "./cgroup.ts";
-import { buildStatus, classifyProbeError, createStatusSampler, nextPrev, type ApiProbe, type ApiStats, type DbLoad, type HealthProbe, type Prev } from "./status.ts";
+import { buildStatus, classifyProbeError, createSamplerPool, createStatusSampler, nextPrev, type ApiProbe, type ApiStats, type DbLoad, type HealthProbe, type Prev } from "./status.ts";
 
 test("cpu.max parses a quota to cores, and 'max' or garbage to null", () => {
   assert.equal(parseCpuMax("50000 100000\n"), 0.5);
@@ -369,4 +369,56 @@ test("sampler: a failing cgroup read on a tick goes to onError, the timer keeps 
   assert.equal(errors.length, reads);
   assert.equal(errors[0], boom);
   assert.equal(s.current(), null);
+});
+
+// Fake samplers that record start and stop, on a clock the test moves.
+const pool = () => {
+  const clock = { ms: NOW };
+  const made: { name: string; started: number; stopped: number }[] = [];
+  const p = createSamplerPool({
+    create: (name) => {
+      const rec = { name, started: 0, stopped: 0 };
+      made.push(rec);
+      return { start: () => { rec.started++; }, stop: () => { rec.stopped++; } };
+    },
+    now: () => clock.ms,
+  });
+  return { p, made, clock };
+};
+
+test("pool: nothing runs until asked; one started sampler per name, shared by later calls", () => {
+  const { p, made } = pool();
+  assert.deepEqual(p.names(), []);
+  const k8s = p.get("k8s");
+  assert.equal(p.get("k8s"), k8s);
+  p.get("compose");
+  assert.deepEqual(made.map((m) => [m.name, m.started, m.stopped]), [["k8s", 1, 0], ["compose", 1, 0]]);
+  assert.deepEqual(p.names(), ["k8s", "compose"]);
+});
+
+test("pool: a sampler not asked for in 30 s is stopped and dropped; the next ask recreates it", () => {
+  const { p, made, clock } = pool();
+  const first = p.get("k8s");
+  p.get("compose");
+  clock.ms += 20_000;
+  p.get("compose");
+  clock.ms += 10_000;
+  p.sweep();
+  assert.deepEqual(p.names(), ["compose"]);
+  assert.deepEqual(made.map((m) => [m.name, m.stopped]), [["k8s", 1], ["compose", 0]]);
+  clock.ms += 19_999;
+  p.sweep();
+  assert.deepEqual(p.names(), ["compose"]);
+  const again = p.get("k8s");
+  assert.deepEqual(made.map((m) => [m.name, m.started]), [["k8s", 1], ["compose", 1], ["k8s", 1]]);
+  assert.notEqual(again, first);
+  assert.deepEqual(p.names(), ["compose", "k8s"]);
+});
+
+test("pool: stopAll() stops every sampler and empties the pool", () => {
+  const { p, made } = pool();
+  p.get("a");
+  p.get("b");
+  p.stopAll();
+  assert.deepEqual([p.names(), made.map((m) => m.stopped)], [[], [1, 1]]);
 });

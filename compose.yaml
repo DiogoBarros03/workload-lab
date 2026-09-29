@@ -49,11 +49,11 @@ services:
         "k8s": {"base": "http://host.containers.internal:31000", "stats": "http://host.containers.internal:31000/stats"},
         "k8s-sidecar": {"base": "http://host.containers.internal:31000", "stats": "http://host.containers.internal:31001/stats"}}
       PORT: "3200"
+      # Parallel lookups of stopped hosts must not starve each other.
+      UV_THREADPOOL_SIZE: "16"
+    # No depends_on: a missing api is a down state, not a startup failure.
     ports:
       - "3200:3200"
-    depends_on:
-      api:
-        condition: service_healthy
 
   test:
     build: ./api

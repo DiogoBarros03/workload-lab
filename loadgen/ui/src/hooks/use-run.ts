@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import type { Operator } from "@/hooks/use-operator";
+import type { Active } from "@/lib/runtime";
 import { initialRun, runReducer, type Progress, type Result, type RunAction, type RunConfig } from "@/lib/run";
 import { parseSse, type SseEvent } from "@/lib/sse";
 
@@ -68,4 +70,27 @@ export function useRun(target: string, onResult: (config: RunConfig, result: Res
   }, []);
 
   return { state, start, stop };
+}
+
+type Asking = { other: Active; config: RunConfig | null };
+
+// Runs at once when the runtime is up; else starts it, asking first to stop another.
+export function useLaunch(operator: Operator, ready: boolean, start: (c: RunConfig) => Promise<void>) {
+  const [asking, setAsking] = useState<Asking | null>(null);
+  const [pending, setPending] = useState<RunConfig | null>(null);
+  const go = async (config: RunConfig | null, confirmed: boolean) => {
+    setPending(config);
+    const r = await operator.prepare(confirmed);
+    setPending(null);
+    if (r === "ready") { if (config !== null) void start(config); }
+    else if (r !== "failed") setAsking({ other: r, config });
+  };
+  const launch = (config: RunConfig) => void (ready ? start(config) : go(config, false));
+  const confirm = () => {
+    if (asking === null) throw new Error("nothing to confirm");
+    setAsking(null);
+    void go(asking.config, true);
+  };
+  const ask = (other: Active) => setAsking({ other, config: null });
+  return { launch, asking, pending, confirm, cancel: () => setAsking(null), ask };
 }

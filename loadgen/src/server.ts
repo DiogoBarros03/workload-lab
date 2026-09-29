@@ -7,7 +7,7 @@ import Fastify, { type FastifyBaseLogger } from "fastify";
 import fastifyStatic from "@fastify/static";
 import { ensureSeed, reset, run, type Load, type Op } from "./runner.ts";
 import { readCgroup } from "./cgroup.ts";
-import { createStatusSampler, type ApiProbe, type HealthProbe } from "./status.ts";
+import { createSamplerPool, createStatusSampler, type ApiProbe, type HealthProbe } from "./status.ts";
 
 // Built by `npm run ui:build`; the Dockerfile copies it in.
 const uiRoot = fileURLToPath(new URL("../ui/dist", import.meta.url));
@@ -121,14 +121,48 @@ async function stream(baseUrl: string, body: RunReq["Body"], raw: ServerResponse
 const PROBE_MS = 3000;
 const LOOKUP_MS = 1000;
 
-// A stopped container's name takes ~5 s to fail; give up after 1 s.
+type HostCheckDeps = { resolve: (host: string) => Promise<unknown>; timeoutMs?: number; failMs?: number; now?: () => number };
+type Check = { check: Promise<void>; failedAt: number | null };
+
+// A stopped container's name takes ~5 s to fail; give up after timeoutMs.
+async function withTimeout(lookup: Promise<unknown>, host: string, timeoutMs: number) {
+  const late = sleep(timeoutMs, undefined, { ref: false }).then(() => {
+    throw Object.assign(new Error(`lookup ${host} took over ${timeoutMs} ms`), { code: "ETIMEOUT", syscall: "getaddrinfo" });
+  });
+  await Promise.race([lookup, late]);
+}
+
+// One lookup per host in flight; a failure is replayed for failMs, so hung lookups never pile up.
+export function createHostCheck({ resolve, timeoutMs = LOOKUP_MS, failMs = 10_000, now = Date.now }: HostCheckDeps) {
+  let checks: ReadonlyMap<string, Check> = new Map();
+  const put = (host: string, entry: Check | null) => {
+    const rest = [...checks].filter(([h]) => h !== host);
+    checks = new Map(entry ? [...rest, [host, entry]] : rest);
+  };
+  const start = (host: string): Promise<void> => {
+    const check: Promise<void> = withTimeout(resolve(host), host, timeoutMs).then(
+      () => put(host, null),
+      (err: unknown) => {
+        put(host, { check, failedAt: now() });
+        throw err;
+      },
+    );
+    put(host, { check, failedAt: null });
+    return check;
+  };
+  return (host: string) => {
+    const known = checks.get(host);
+    const fresh = known && (known.failedAt === null || now() - known.failedAt < failMs);
+    return fresh ? known.check : start(host);
+  };
+}
+
+const checkHost = createHostCheck({ resolve: (host) => lookup(host) });
+
 async function resolveHost(baseUrl: string) {
   const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, "");
   if (host === "localhost" || isIP(host)) return;
-  const late = sleep(LOOKUP_MS, undefined, { ref: false }).then(() => {
-    throw Object.assign(new Error(`lookup ${host} took over ${LOOKUP_MS} ms`), { code: "ETIMEOUT", syscall: "getaddrinfo" });
-  });
-  await Promise.race([lookup(host), late]);
+  await checkHost(host);
 }
 
 async function getJson(url: string) {
@@ -161,44 +195,43 @@ async function probeSidecar(url: string): Promise<HealthProbe> {
 
 declare module "fastify" {
   interface FastifyInstance {
-    statusSampler: ReturnType<typeof createStatusSampler>;
+    samplers: ReturnType<typeof targetSamplers>;
   }
 }
 
 const unknownTarget = (name: string) => ({ error: `unknown target ${JSON.stringify(name)}` });
 
-// One sampler per target, started on first use and kept until stopAll.
+// One sampler per target, started on first use, stopped after 30 s unasked.
 function targetSamplers(targets: Targets, log: FastifyBaseLogger, intervalMs: number) {
-  const samplers = new Map<string, ReturnType<typeof createStatusSampler>>();
-  const samplerFor = (name: string) => {
-    const known = samplers.get(name);
-    if (known) return known;
-    const sidecar = sidecarHealthUrl(targets[name]);
-    const sampler = createStatusSampler({
-      probe: () => probeApi(targets[name]),
-      ...(sidecar !== null && { sidecarProbe: () => probeSidecar(sidecar) }),
-      selfStats: () => readCgroup(),
-      onError: (err) => log.error(err),
-      intervalMs,
-    });
-    samplers.set(name, sampler);
-    sampler.start();
-    return sampler;
-  };
-  return { samplerFor, stopAll: () => samplers.forEach((s) => s.stop()) };
+  return createSamplerPool({
+    create: (name) => {
+      const sidecar = sidecarHealthUrl(targets[name]);
+      return createStatusSampler({
+        probe: () => probeApi(targets[name]),
+        ...(sidecar !== null && { sidecarProbe: () => probeSidecar(sidecar) }),
+        selfStats: () => readCgroup(),
+        onError: (err) => log.error(err),
+        intervalMs,
+      });
+    },
+  });
 }
 
 export function buildApp(targets: Targets, { statusIntervalMs = 2000 } = {}) {
   const app = Fastify({ logger: process.env.LOG_LEVEL !== "silent" });
-  const { samplerFor, stopAll } = targetSamplers(targets, app.log, statusIntervalMs);
-  app.decorate("statusSampler", samplerFor(DEFAULT_TARGET));
-  app.addHook("onClose", async () => stopAll());
+  const samplers = targetSamplers(targets, app.log, statusIntervalMs);
+  const sweeper = setInterval(samplers.sweep, statusIntervalMs).unref();
+  app.decorate("samplers", samplers);
+  app.addHook("onClose", async () => {
+    clearInterval(sweeper);
+    samplers.stopAll();
+  });
 
   // Null only before the first sample lands; then wait for it.
   app.get<TargetReq>("/status", { schema: targetQuery }, (req, reply) => {
     const name = req.query.target ?? DEFAULT_TARGET;
     if (!Object.hasOwn(targets, name)) return reply.code(400).send(unknownTarget(name));
-    const sampler = samplerFor(name);
+    const sampler = samplers.get(name);
     return sampler.current() ?? sampler.sampleOnce();
   });
 
@@ -206,6 +239,7 @@ export function buildApp(targets: Targets, { statusIntervalMs = 2000 } = {}) {
     const { target: name = DEFAULT_TARGET, ...load } = req.body;
     if (!Object.hasOwn(targets, name)) return reply.code(400).send(unknownTarget(name));
     if (active) return reply.code(409).send(busy);
+    samplers.get(name);
     active = true;
     reply.hijack();
     reply.raw.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });

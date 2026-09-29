@@ -4,11 +4,12 @@ import type { ClusterJob, Operator } from "@/hooks/use-operator";
 import { useSecondClick } from "@/hooks/use-second-click";
 import { allRunning, controllable, summaryOf, type ClusterSummary } from "@/lib/operator";
 import type { Project } from "@/lib/projects";
+import { othersActive, type Active } from "@/lib/runtime";
 
-type Props = { operator: Operator; project: Project; running: boolean };
+type Props = { operator: Operator; project: Project; running: boolean; onSwitch: (other: Active) => void };
 
 const LABEL = {
-  start: "Starting…", stop: "Stopping…", up: "Creating Cluster…", apply: "Starting…", delete: "Stopping…", down: "Deleting Cluster…",
+  start: "Starting…", stop: "Stopping…", up: "Creating Cluster…", apply: "Starting…", delete: "Stopping…", down: "Deleting Cluster…", wait: "Waiting…",
 } as const;
 
 function Toggle({ on, operator, running, onClick, idle }: { on: boolean; operator: Operator; running: boolean; onClick: () => void; idle: string }) {
@@ -34,7 +35,7 @@ function clusterStep(c: ClusterSummary, overlay: string): { job: ClusterJob; idl
   return c.applied.includes(overlay) ? { job: "delete", idle: "Stop Containers", on: true } : { job: "apply", idle: "Start Containers", on: false };
 }
 
-function ClusterToggle({ operator, overlay, running }: { operator: Operator; overlay: string; running: boolean }) {
+function ClusterToggle({ operator, overlay, running }: Props & { overlay: string }) {
   if (operator.cluster === null) return null;
   const { job, idle, on } = clusterStep(operator.cluster, overlay);
   return <Toggle on={on} operator={operator} running={running} onClick={() => void operator.runJob(job)} idle={idle} />;
@@ -69,6 +70,19 @@ function ClusterLine({ operator, project }: { operator: Operator; project: Proje
 const ComposeLine = ({ operator, project }: { operator: Operator; project: Project }) =>
   operator.services && <p className="font-mono text-label text-muted-foreground">{summaryOf(operator.services, controllable(project))}</p>;
 
+// Another project's runtime is up: offer to stop it through the switch dialog.
+function OtherRunning({ operator, project, onSwitch }: Props) {
+  const other = othersActive(operator.active, project)[0];
+  if (other === undefined) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 text-label text-muted-foreground">
+      {other.label} is running.
+      <button type="button" disabled={operator.busy !== null} onClick={() => onSwitch(other)}
+        className="inline-flex min-h-11 items-center underline underline-offset-2 hover:text-ink disabled:opacity-50 sm:min-h-0">Stop It</button>
+    </p>
+  );
+}
+
 const OperatorMissing = () => (
   <p className="text-label text-muted-foreground">Operator not running. Start it on the host with <code className="font-mono text-ink-soft">npm run lab</code>.</p>
 );
@@ -84,6 +98,7 @@ export function ContainersControl(props: Props) {
         {operator.reachable && (runtime.kind === "kind" ? <ClusterToggle {...props} overlay={runtime.overlay} /> : <ComposeToggle {...props} />)}
       </div>
       {!operator.reachable ? <OperatorMissing /> : runtime.kind === "kind" ? <ClusterLine {...props} /> : <ComposeLine {...props} />}
+      {operator.reachable && <OtherRunning {...props} />}
       {operator.busy === "up" && <p className="text-label text-muted-foreground">Three nodes, about a minute the first time.</p>}
       {operator.error && <p role="alert" className="text-label text-red-fg">{operator.error}</p>}
     </div>

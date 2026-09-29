@@ -227,3 +227,33 @@ export function createStatusSampler({ probe, sidecarProbe, selfStats, onError, i
     sampleOnce,
   };
 }
+
+type Runnable = { start: () => void; stop: () => void };
+type PoolDeps<S> = { create: (name: string) => S; idleMs?: number; now?: () => number };
+
+// A sampler runs only while asked for: idle for idleMs, it is stopped and dropped.
+export function createSamplerPool<S extends Runnable>({ create, idleMs = 30_000, now = Date.now }: PoolDeps<S>) {
+  let live: ReadonlyMap<string, { sampler: S; askedAt: number }> = new Map();
+
+  const get = (name: string): S => {
+    const known = live.get(name)?.sampler;
+    const sampler = known ?? create(name);
+    live = new Map(live).set(name, { sampler, askedAt: now() });
+    if (!known) sampler.start();
+    return sampler;
+  };
+
+  const sweep = () => {
+    const at = now();
+    const idle = (e: { askedAt: number }) => at - e.askedAt >= idleMs;
+    [...live.values()].filter(idle).forEach((e) => e.sampler.stop());
+    live = new Map([...live].filter(([, e]) => !idle(e)));
+  };
+
+  const stopAll = () => {
+    live.forEach((e) => e.sampler.stop());
+    live = new Map();
+  };
+
+  return { get, sweep, stopAll, names: () => [...live.keys()] };
+}

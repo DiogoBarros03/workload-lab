@@ -11,15 +11,17 @@ import { QuickTests } from "@/components/QuickTests";
 import { ResultCard } from "@/components/ResultCard";
 import { RunCard } from "@/components/RunCard";
 import { SummarySection } from "@/components/SummarySection";
+import { SwitchDialog } from "@/components/SwitchDialog";
 import { useHistory } from "@/hooks/use-history";
 import type { Operator } from "@/hooks/use-operator";
-import { useRun } from "@/hooks/use-run";
+import { useLaunch, useRun } from "@/hooks/use-run";
 import type { StatusState } from "@/hooks/use-status";
 import { runPresetFrom, type Run } from "@/lib/baseline";
 import { datasetFor } from "@/lib/datasets";
 import { LESSONS, type Lesson, type QuickTest } from "@/lib/learning";
 import { controllable } from "@/lib/operator";
 import type { Project } from "@/lib/projects";
+import { othersActive } from "@/lib/runtime";
 import { INITIAL_FORM, type RunForm } from "@/lib/run";
 import { runWarning } from "@/lib/status";
 
@@ -31,6 +33,10 @@ function built({ handsOn, changed, learned, measured }: Lesson) {
   return { handsOn, changed, learned, dataset: datasetFor(measured) };
 }
 
+// Off or displaced by another project: the next run starts its runtime first.
+const readyToRun = (project: Project, status: StatusState, operator: Operator) =>
+  !controllable(project).some((s) => status.view.health[s] === "off") && othersActive(operator.active, project).length === 0;
+
 // Every ready project: the lecture, the live lab and its own recorded runs.
 export function ProjectPage({ project, status, operator }: { project: Project; status: StatusState; operator: Operator }) {
   const history = useHistory(project.id);
@@ -38,8 +44,8 @@ export function ProjectPage({ project, status, operator }: { project: Project; s
   const [form, setForm] = useState<RunForm>(INITIAL_FORM);
   const runButton = useRef<HTMLButtonElement>(null);
   const running = run.phase === "running";
-  const services = controllable(project);
-  const blocked = services.some((s) => status.view.health[s] === "off");
+  const launch = useLaunch(operator, readyToRun(project, status, operator), start);
+  const busy = operator.busy !== null;
   const lesson = LESSONS[project.id];
   const { handsOn, changed, learned, dataset } = built(lesson);
   const runThis = (r: Run) => {
@@ -50,7 +56,7 @@ export function ProjectPage({ project, status, operator }: { project: Project; s
   };
   const quickRun = (q: QuickTest) => {
     setForm({ op: q.op, rps: String(q.rps), duration: String(q.durationSec) });
-    void start({ mode: "open", op: q.op, rps: q.rps, durationSec: q.durationSec });
+    launch.launch({ mode: "open", op: q.op, rps: q.rps, durationSec: q.durationSec });
   };
   return (
     <>
@@ -64,10 +70,12 @@ export function ProjectPage({ project, status, operator }: { project: Project; s
           </div>
           <RunCard
             project={project} form={form} onForm={setForm} runRef={runButton} className="lg:col-span-2"
-            running={running} warning={runWarning(status.view)} onRun={start} onStop={stop} blocked={blocked}
+            running={running} warning={runWarning(status.view)} onRun={launch.launch} onStop={stop}
+            phase={operator.phase} busy={busy}
             control={<>
-              <ContainersControl operator={operator} project={project} running={running} />
-              <QuickTests quick={lesson.quick} baseline={dataset} disabled={running || blocked} onRun={quickRun} />
+              <ContainersControl operator={operator} project={project} running={running} onSwitch={launch.ask} />
+              <QuickTests quick={lesson.quick} baseline={dataset} disabled={running || busy}
+                phase={operator.phase} pending={launch.pending} onRun={quickRun} />
             </>}
           />
           <LiveCard run={run} className="min-w-0 lg:col-span-3" />
@@ -80,6 +88,7 @@ export function ProjectPage({ project, status, operator }: { project: Project; s
       <ProseSection id="learned" title="What We Learned" paragraphs={learned} />
       <SummarySection lesson={lesson} />
       <PathNav project={project} />
+      <SwitchDialog other={launch.asking?.other ?? null} project={project} onConfirm={launch.confirm} onCancel={launch.cancel} />
     </>
   );
 }

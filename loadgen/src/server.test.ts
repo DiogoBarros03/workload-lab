@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
-import { buildApp, parseTargets, targetsFromEnv, type Targets } from "./server.ts";
+import { buildApp, createHostCheck, parseTargets, targetsFromEnv, type Targets } from "./server.ts";
 
 process.env.LOG_LEVEL = "silent";
 const baseUrl = process.env.BASE_URL;
@@ -221,7 +221,7 @@ test("GET /status shows an api that stops answering after a success as slow, aft
   const target = buildApp(only(`http://127.0.0.1:${(stub.address() as AddressInfo).port}`), { statusIntervalMs: 60_000 });
   // A fresh sample, then /status must serve exactly it.
   const rows = async () => {
-    const fresh = await target.statusSampler.sampleOnce();
+    const fresh = await target.samplers.get("compose").sampleOnce();
     const res = (await target.inject({ method: "GET", url: "/status" })).json();
     assert.equal(res.sampledAtMs, fresh.sampledAtMs);
     return Object.fromEntries(res.containers.map((c: { service: string }) => [c.service, c]));
@@ -244,7 +244,7 @@ test("GET /status shows an api that stops answering after a success as slow, aft
 
 test("GET /status shows live api and db, with an api cpu rate on the second sample", async () => {
   const get = async () => {
-    await live.statusSampler.sampleOnce();
+    await live.samplers.get("compose").sampleOnce();
     return Object.fromEntries(
       (await live.inject({ method: "GET", url: "/status" })).json().containers.map((c: { service: string }) => [c.service, c]),
     );
@@ -263,7 +263,7 @@ test("GET /status shows live api and db, with an api cpu rate on the second samp
 });
 
 test("GET /status maps postgres load and the api pool onto the db row", async () => {
-  const db = async () => (await live.statusSampler.sampleOnce()).containers.find((c) => c.service === "db")!;
+  const db = async () => (await live.samplers.get("compose").sampleOnce()).containers.find((c) => c.service === "db")!;
   await db();
   const res = await live.inject({ method: "POST", url: "/run", payload: { op: "read", requests: 300, concurrency: 10 } });
   assert.equal(res.statusCode, 200);
@@ -313,7 +313,7 @@ test("GET /status adds an up sidecar row when the stats URL has its own origin a
   const statsOrigin = `http://127.0.0.1:${(stub.address() as AddressInfo).port}`;
   const target = buildApp({ compose: { base: baseUrl, stats: `${statsOrigin}/stats` } }, { statusIntervalMs: 60_000 });
   try {
-    const rows = Object.fromEntries((await target.statusSampler.sampleOnce()).containers.map((c) => [c.service, c]));
+    const rows = Object.fromEntries((await target.samplers.get("compose").sampleOnce()).containers.map((c) => [c.service, c]));
     assert.deepEqual(Object.keys(rows), ["api", "db", "loadgen", "sidecar"]);
     assert.deepEqual([rows.sidecar.state, rows.sidecar.reason, rows.api.observer], ["up", null, "sidecar"]);
   } finally {
@@ -409,4 +409,68 @@ test("GET /status?target= probes that target's base for health and its stats URL
     health.close();
     sidecar.close();
   }
+});
+
+test("no sampler runs at startup; /status and /run start only the target they name", async () => {
+  const k8s = { base: `http://127.0.0.1:${closedPort}`, stats: `http://127.0.0.1:${closedPort}/stats` };
+  const target = buildApp({ ...only(`http://127.0.0.1:${closedPort}`), k8s }, { statusIntervalMs: 60_000 });
+  try {
+    assert.deepEqual(target.samplers.names(), []);
+    const res = await target.inject({ method: "GET", url: "/status?target=k8s" });
+    assert.equal(res.json().containers.find((c: { service: string }) => c.service === "api").state, "down");
+    assert.deepEqual(target.samplers.names(), ["k8s"]);
+    await target.inject({ method: "POST", url: "/run", payload: { op: "read", requests: 1, concurrency: 1 } });
+    assert.deepEqual(target.samplers.names(), ["k8s", "compose"]);
+  } finally {
+    await target.close();
+  }
+});
+
+// A resolver whose lookups the test settles by hand, on a clock the test moves.
+const resolver = () => {
+  const clock = { ms: 1_000_000 };
+  const calls: { host: string; settle: (err?: Error) => void }[] = [];
+  const resolve = (host: string) => new Promise<unknown>((ok, fail) => {
+    calls.push({ host, settle: (err) => (err ? fail(err) : ok({})) });
+  });
+  return { clock, calls, check: createHostCheck({ resolve, now: () => clock.ms, timeoutMs: 50 }) };
+};
+const notFound = () => Object.assign(new Error("getaddrinfo ENOTFOUND api"), { code: "ENOTFOUND", syscall: "getaddrinfo" });
+
+test("host check: concurrent checks of one host share one lookup; other hosts get their own", async () => {
+  const { calls, check } = resolver();
+  const both = Promise.all([check("api"), check("api"), check("db")]);
+  assert.deepEqual(calls.map((c) => c.host), ["api", "db"]);
+  calls.forEach((c) => c.settle());
+  await both;
+  const again = check("api");
+  assert.deepEqual(calls.map((c) => c.host), ["api", "db", "api"], "a success is not cached");
+  calls[2].settle();
+  await again;
+});
+
+test("host check: a failed lookup is replayed for 10 s without a new lookup, then retried", async () => {
+  const { clock, calls, check } = resolver();
+  const first = check("api");
+  calls[0].settle(notFound());
+  await assert.rejects(first, { code: "ENOTFOUND", syscall: "getaddrinfo" });
+  clock.ms += 9_999;
+  await assert.rejects(check("api"), { code: "ENOTFOUND" });
+  assert.equal(calls.length, 1);
+  clock.ms += 1;
+  const retry = check("api");
+  assert.equal(calls.length, 2);
+  calls[1].settle();
+  await retry;
+});
+
+test("host check: a hanging lookup fails as a dns timeout and starts no second lookup while cached", async () => {
+  const { clock, calls, check } = resolver();
+  const started = Date.now();
+  await assert.rejects(check("api"), { code: "ETIMEOUT", syscall: "getaddrinfo" });
+  assert.ok(Date.now() - started < 1000, String(Date.now() - started));
+  clock.ms += 5_000;
+  await assert.rejects(check("api"), { code: "ETIMEOUT" });
+  assert.equal(calls.length, 1);
+  calls[0].settle(notFound());
 });

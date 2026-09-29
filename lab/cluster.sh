@@ -27,8 +27,17 @@ create() {
     kind create cluster --name "$NAME" --config "$CONFIG"
 }
 
+# After a host reboot the node containers exist but are stopped.
+start_stopped() {
+  local stopped
+  mapfile -t stopped < <(podman ps -a --filter "name=^$NAME-" --format '{{.Names}} {{.State}}' | awk '$2 != "running" {print $1}')
+  (( ${#stopped[@]} )) || return 0
+  step "starting stopped nodes: ${stopped[*]}"
+  podman start "${stopped[@]}" >/dev/null
+}
+
 up() {
-  if exists; then step "cluster $NAME exists"; else step "creating cluster $NAME"; create; fi
+  if exists; then step "cluster $NAME exists"; start_stopped; else step "creating cluster $NAME"; create; fi
   step "waiting for nodes Ready"
   kubectl --context "$CTX" wait --for=condition=Ready nodes --all --timeout=180s
 }
